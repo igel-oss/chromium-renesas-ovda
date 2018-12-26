@@ -378,7 +378,7 @@ source_set("common") {
 }
 
 # TODO(watk): Run this on bots. http://crbug.com/461437
-if (is_win || is_android || use_v4l2_codec || use_vaapi) {
+if (is_win || is_android || use_v4l2_codec || use_vaapi || use_omx_codec) {
   test("video_decode_accelerator_unittest") {
     data = [
       "//media/test/data/",
@@ -404,7 +404,7 @@ if (is_win || is_android || use_v4l2_codec || use_vaapi) {
 
     configs += [ "//third_party/khronos:khronos_headers" ]
 
-    if (is_win || is_chromeos || use_v4l2_codec) {
+    if (is_win || is_chromeos || use_v4l2_codec || use_omx_codec) {
       sources = [
         "video_decode_accelerator_unittest.cc",
       ]
