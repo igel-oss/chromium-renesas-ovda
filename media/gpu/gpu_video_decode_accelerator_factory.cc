@@ -30,6 +30,10 @@
 #include "media/gpu/v4l2/v4l2_video_decode_accelerator.h"
 #include "ui/gl/gl_surface_egl.h"
 #endif
+#if BUILDFLAG(USE_OMX_CODEC)
+#include "media/gpu/omx/omx_video_decode_accelerator.h"
+#include "ui/gl/gl_surface_egl.h"
+#endif
 #if defined(OS_ANDROID)
 #include "media/gpu/android/android_video_decode_accelerator.h"
 #include "media/gpu/android/android_video_surface_chooser_impl.h"
@@ -63,7 +67,7 @@ gpu::VideoDecodeAcceleratorCapabilities GetDecoderCapabilitiesInternal(
   capabilities.supported_profiles =
       DXVAVideoDecodeAccelerator::GetSupportedProfiles(gpu_preferences,
                                                        workarounds);
-#elif BUILDFLAG(USE_V4L2_CODEC) || BUILDFLAG(USE_VAAPI)
+#elif BUILDFLAG(USE_V4L2_CODEC) || BUILDFLAG(USE_VAAPI) || BUILDFLAG(USE_OMX_CODEC)
   VideoDecodeAccelerator::SupportedProfiles vda_profiles;
 #if BUILDFLAG(USE_V4L2_CODEC)
   vda_profiles = V4L2VideoDecodeAccelerator::GetSupportedProfiles();
@@ -77,6 +81,11 @@ gpu::VideoDecodeAcceleratorCapabilities GetDecoderCapabilitiesInternal(
 #endif
 #if BUILDFLAG(USE_VAAPI)
   vda_profiles = VaapiVideoDecodeAccelerator::GetSupportedProfiles();
+  GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(
+      vda_profiles, &capabilities.supported_profiles);
+#endif
+#if BUILDFLAG(USE_OMX_CODEC)
+  vda_profiles = OmxVideoDecodeAccelerator::GetSupportedProfiles();
   GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(
       vda_profiles, &capabilities.supported_profiles);
 #endif
@@ -175,6 +184,9 @@ GpuVideoDecodeAcceleratorFactory::CreateVDA(
 #if BUILDFLAG(USE_VAAPI)
     &GpuVideoDecodeAcceleratorFactory::CreateVaapiVDA,
 #endif
+#if BUILDFLAG(USE_OMX_CODEC)
+    &GpuVideoDecodeAcceleratorFactory::CreateOMXVDA,
+#endif
 #if defined(OS_MACOSX)
     &GpuVideoDecodeAcceleratorFactory::CreateVTVDA,
 #endif
@@ -255,6 +267,21 @@ GpuVideoDecodeAcceleratorFactory::CreateVaapiVDA(
   return decoder;
 }
 #endif
+
+#if BUILDFLAG(USE_OMX_CODEC)
+std::unique_ptr<VideoDecodeAccelerator>
+GpuVideoDecodeAcceleratorFactory::CreateOMXVDA(
+    const gpu::GpuDriverBugWorkarounds& workarounds,
+    const gpu::GpuPreferences& gpu_preferences,
+    MediaLog* media_log) const {
+  std::unique_ptr<VideoDecodeAccelerator> decoder;
+  decoder.reset(new OmxVideoDecodeAccelerator(
+        gl::GLSurfaceEGL::GetHardwareDisplay(), make_context_current_cb_));
+  return decoder;
+}
+
+#endif
+
 
 #if defined(OS_MACOSX)
 std::unique_ptr<VideoDecodeAccelerator>
