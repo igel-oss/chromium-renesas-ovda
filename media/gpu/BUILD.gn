@@ -17,6 +17,7 @@ buildflag_header("buildflags") {
     "USE_V4L2_CODEC=$use_v4l2_codec",
     "USE_LIBV4L2=$use_v4lplugin",
     "USE_LINUX_V4L2=$use_linux_v4l2_only",
+    "USE_OMX_CODEC=$use_omx_codec",
   ]
 }
 
@@ -259,6 +260,16 @@ component("gpu") {
 
   if (use_vaapi) {
     public_deps += [ "//media/gpu/vaapi" ]
+  }
+
+  if (use_omx_codec) {
+      sources += [
+        "omx/omx_video_decode_accelerator.cc",
+        "omx/omx_video_decode_accelerator.h",
+      ]
+      deps += [
+        "//third_party/openmax/il:openmax_il",
+      ]
   }
 
   if (is_win) {
