@@ -23,6 +23,42 @@ buildflag_header("buildflags") {
   ]
 }
 
+if (use_omx_codec) {
+  action("omx_generate_stubs") {
+    extra_header = "omx/omx_stub_header.fragment"
+
+    script = "../../tools/generate_stubs/generate_stubs.py"
+    sources = [
+      "omx/omx.sig",
+    ]
+    inputs = [
+      extra_header,
+    ]
+    stubs_filename_root = "omx_stubs"
+
+    outputs = [
+      "$target_gen_dir/omx/$stubs_filename_root.cc",
+      "$target_gen_dir/omx/$stubs_filename_root.h",
+    ]
+    args = [
+      "-i",
+      rebase_path("$target_gen_dir/omx", root_build_dir),
+      "-o",
+      rebase_path("$target_gen_dir/omx", root_build_dir),
+      "-t",
+      "posix_stubs",
+      "-e",
+      rebase_path(extra_header, root_build_dir),
+      "-s",
+      stubs_filename_root,
+      "-p",
+      "media/gpu/omx",
+    ]
+
+    args += rebase_path(sources, root_build_dir)
+  }
+}
+
 component("gpu") {
   output_name = "media_gpu"
 
@@ -170,6 +206,8 @@ component("gpu") {
   }
 
   if (use_omx_codec) {
+      sources += get_target_outputs(":omx_generate_stubs")
+      deps += [ ":omx_generate_stubs" ]
       sources += [
         "omx/omx_video_decode_accelerator.cc",
         "omx/omx_video_decode_accelerator.h",
