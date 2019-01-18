@@ -12,6 +12,15 @@
 #include "media/base/bitstream_buffer.h"
 #include "media/video/picture.h"
 
+#include "media/gpu/omx/omx_stubs.h"
+
+using media_gpu_omx::kModuleOmx;
+using media_gpu_omx::InitializeStubs;
+using media_gpu_omx::StubPathMap;
+
+static const base::FilePath::CharType kOMXLib[] =
+    FILE_PATH_LITERAL("/usr/lib/libomxr_core.so");
+
 namespace media {
 
 // Helper typedef for input buffers.  This is used as the pAppPrivate field of
@@ -25,21 +34,6 @@ enum { kNumPictureBuffers = 8 };
 // compromise, allowing some decoding ahead (up to 3 frames/vsync) to compensate
 // for more difficult frames.
 enum { kSyncPollDelayMs = 5 };
-
-void* omx_handle = NULL;
-
-typedef OMX_ERRORTYPE (*OMXInit)();
-typedef OMX_ERRORTYPE (*OMXGetHandle)(
-    OMX_HANDLETYPE*, OMX_STRING, OMX_PTR, OMX_CALLBACKTYPE*);
-typedef OMX_ERRORTYPE (*OMXGetComponentsOfRole)(OMX_STRING, OMX_U32*, OMX_U8**);
-typedef OMX_ERRORTYPE (*OMXFreeHandle)(OMX_HANDLETYPE);
-typedef OMX_ERRORTYPE (*OMXDeinit)();
-
-OMXInit omx_init = NULL;
-OMXGetHandle omx_gethandle = NULL;
-OMXGetComponentsOfRole omx_get_components_of_role = NULL;
-OMXFreeHandle omx_free_handle = NULL;
-OMXDeinit omx_deinit = NULL;
 
 // Maps h264-related Profile enum values to OMX_VIDEO_AVCPROFILETYPE values.
 static OMX_U32 MapH264ProfileToOMXAVCProfile(uint32_t profile) {
@@ -153,7 +147,7 @@ OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
   static bool omx_functions_initialized = PostSandboxInitialization();
   RETURN_ON_FAILURE(omx_functions_initialized,
                     "Failed to load openmax library", PLATFORM_FAILURE,);
-  RETURN_ON_OMX_FAILURE(omx_init(), "Failed to init OpenMAX core",
+  RETURN_ON_OMX_FAILURE(OMX_Init(), "Failed to init OpenMAX core",
                         PLATFORM_FAILURE,);
 }
 
@@ -265,7 +259,7 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
 
   OMX_U32 num_components = 1;
   char component[OMX_MAX_STRINGNAME_SIZE];
-  OMX_ERRORTYPE result = omx_get_components_of_role(
+  OMX_ERRORTYPE result = OMX_GetComponentsOfRole(
       role_name, &num_components,
       reinterpret_cast<OMX_U8**>(&component));
   RETURN_ON_OMX_FAILURE(result, "Unsupported role: " << role_name,
@@ -274,7 +268,7 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
                     PLATFORM_FAILURE, false);
 
   // Get the handle to the component.
-  result = omx_gethandle(
+  result = OMX_GetHandle(
       &component_handle_,
       reinterpret_cast<OMX_STRING>(component),
       this, &omx_accelerator_callbacks);
@@ -735,11 +729,11 @@ void OmxVideoDecodeAccelerator::OnReachedInvalidInErroring() {
 }
 
 void OmxVideoDecodeAccelerator::ShutdownComponent() {
-  OMX_ERRORTYPE result = omx_free_handle(component_handle_);
+  OMX_ERRORTYPE result = OMX_FreeHandle(component_handle_);
   if (result != OMX_ErrorNone)
     DLOG(ERROR) << "OMX_FreeHandle() error. Error code: " << result;
   client_state_ = OMX_StateMax;
-  omx_deinit();
+  OMX_Deinit();
   // Allow BusyLoopInDestroying to exit and delete |this|.
   component_handle_ = NULL;
 }
@@ -1162,8 +1156,7 @@ void OmxVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
 // static
 void OmxVideoDecodeAccelerator::PreSandboxInitialization() {
   DCHECK(!pre_sandbox_init_done_);
-  omx_handle = dlopen("libOmxCore.so", RTLD_NOW);
-  pre_sandbox_init_done_ = omx_handle != NULL;
+  pre_sandbox_init_done_ = true;
 }
 
 // static
@@ -1171,19 +1164,10 @@ bool OmxVideoDecodeAccelerator::PostSandboxInitialization() {
   if (!pre_sandbox_init_done_)
     return false;
 
-  omx_init = reinterpret_cast<OMXInit>(dlsym(omx_handle, "OMX_Init"));
-  omx_gethandle =
-      reinterpret_cast<OMXGetHandle>(dlsym(omx_handle, "OMX_GetHandle"));
-  omx_get_components_of_role =
-      reinterpret_cast<OMXGetComponentsOfRole>(
-          dlsym(omx_handle, "OMX_GetComponentsOfRole"));
-  omx_free_handle =
-      reinterpret_cast<OMXFreeHandle>(dlsym(omx_handle, "OMX_FreeHandle"));
-  omx_deinit =
-      reinterpret_cast<OMXDeinit>(dlsym(omx_handle, "OMX_Deinit"));
+  StubPathMap paths;
+  paths[kModuleOmx].push_back(kOMXLib);
 
-  return (omx_init && omx_gethandle && omx_get_components_of_role &&
-          omx_free_handle && omx_deinit);
+  return InitializeStubs(paths);
 }
 
 // static
