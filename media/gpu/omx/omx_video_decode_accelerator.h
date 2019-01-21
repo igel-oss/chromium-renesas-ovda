@@ -221,9 +221,6 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   uint32_t h264_profile_;  // OMX_AVCProfile requested during Initialization.
   bool component_name_is_nvidia_;
 
-  // Has static initialization of pre-sandbox components completed successfully?
-  static bool pre_sandbox_init_done_;
-
   // Method to handle events
   void EventHandlerCompleteTask(OMX_EVENTTYPE event,
                                 OMX_U32 data1,

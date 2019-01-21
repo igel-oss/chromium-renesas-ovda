@@ -86,8 +86,6 @@ static OMX_U32 MapH264ProfileToOMXAVCProfile(uint32_t profile) {
       error, ret_val)
 
 // static
-bool OmxVideoDecodeAccelerator::pre_sandbox_init_done_ = false;
-
 class OmxVideoDecodeAccelerator::PictureSyncObject {
  public:
   // Create a sync object and insert into the GPU command stream.
@@ -1154,16 +1152,7 @@ void OmxVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
 }
 
 // static
-void OmxVideoDecodeAccelerator::PreSandboxInitialization() {
-  DCHECK(!pre_sandbox_init_done_);
-  pre_sandbox_init_done_ = true;
-}
-
-// static
 bool OmxVideoDecodeAccelerator::PostSandboxInitialization() {
-  if (!pre_sandbox_init_done_)
-    return false;
-
   StubPathMap paths;
   paths[kModuleOmx].push_back(kOMXLib);
 
