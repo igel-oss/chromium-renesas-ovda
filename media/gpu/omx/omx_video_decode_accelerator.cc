@@ -256,7 +256,9 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
   // Get the first component for this role and set the role on it.
 
   OMX_U32 num_components = 1;
-  char component[OMX_MAX_STRINGNAME_SIZE];
+  char *component;
+  component = new char[OMX_MAX_STRINGNAME_SIZE];
+
   OMX_ERRORTYPE result = OMX_GetComponentsOfRole(
       role_name, &num_components,
       reinterpret_cast<OMX_U8**>(&component));
@@ -265,11 +267,15 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
   RETURN_ON_FAILURE(num_components == 1, "No components for: " << role_name,
                     PLATFORM_FAILURE, false);
 
+  VLOG(1) << "Got component " << component << " for role: " << role_name;
+
   // Get the handle to the component.
   result = OMX_GetHandle(
       &component_handle_,
       reinterpret_cast<OMX_STRING>(component),
       this, &omx_accelerator_callbacks);
+  delete[] component;
+
   RETURN_ON_OMX_FAILURE(result,
                         "Failed to OMX_GetHandle on: " << component,
                         PLATFORM_FAILURE, false);
