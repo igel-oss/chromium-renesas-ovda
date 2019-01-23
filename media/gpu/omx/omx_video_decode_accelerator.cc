@@ -200,6 +200,7 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
     h264_profile_ = MapH264ProfileToOMXAVCProfile(profile);
     RETURN_ON_FAILURE(h264_profile_ != OMX_VIDEO_AVCProfileMax,
                       "Unexpected profile", INVALID_ARGUMENT, false);
+    h264_parser_.reset(new H264Parser);
   } else if (profile >= media::VP8PROFILE_MIN && profile <= media::VP8PROFILE_MAX) {
     codec_ = VP8;
   } else {
@@ -239,6 +240,8 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
     return false;
 
   init_begun_ = true;
+  input_buffer_offset_ = 0;
+
   deferred_init_allowed_ = config.is_deferred_initialization_allowed;
   return true;
 }
@@ -384,7 +387,6 @@ void OmxVideoDecodeAccelerator::Decode(
                     ILLEGAL_STATE,);
 
   OMX_BUFFERHEADERTYPE* omx_buffer = free_input_buffers_.front();
-  free_input_buffers_.pop();
 
   if (bitstream_buffer.id() == -1 && bitstream_buffer.size() == 0) {
     // Cook up an empty buffer w/ EOS set and feed it to OMX.
@@ -392,9 +394,11 @@ void OmxVideoDecodeAccelerator::Decode(
     omx_buffer->nAllocLen = omx_buffer->nFilledLen;
     omx_buffer->nFlags |= OMX_BUFFERFLAG_EOS;
     omx_buffer->nTimeStamp = -2;
+    free_input_buffers_.pop();
     OMX_ERRORTYPE result = OMX_EmptyThisBuffer(component_handle_, omx_buffer);
     RETURN_ON_OMX_FAILURE(result, "OMX_EmptyThisBuffer() failed",
                           PLATFORM_FAILURE,);
+    input_buffer_offset_ = 0;
     input_buffers_at_component_++;
     return;
   }
@@ -414,19 +418,62 @@ void OmxVideoDecodeAccelerator::Decode(
   input_buffer_details->first.reset(shm.release());
   input_buffer_details->second = bitstream_buffer.id();
   DCHECK(!omx_buffer->pAppPrivate);
-  omx_buffer->pAppPrivate = input_buffer_details;
-  omx_buffer->pBuffer =
-      static_cast<OMX_U8*>(input_buffer_details->first->memory());
-  omx_buffer->nFilledLen = bitstream_buffer.size();
-  omx_buffer->nAllocLen = omx_buffer->nFilledLen;
-  omx_buffer->nFlags &= ~OMX_BUFFERFLAG_EOS;
+
   // Abuse the header's nTimeStamp field to propagate the bitstream buffer ID to
   // the output buffer's nTimeStamp field, so we can report it back to the
   // client in PictureReady().
   omx_buffer->nTimeStamp = bitstream_buffer.id();
 
+  OMX_U8 *data = static_cast<OMX_U8*>(input_buffer_details->first->memory());
+
+  if (codec_ == H264) {
+    int size = bitstream_buffer.size();
+    h264_parser_->SetStream(data, size);
+
+    bool has_eof = false;
+    H264Parser::Result res;
+    H264NALU nal;
+    while ((res = h264_parser_->AdvanceToNextNALU(&nal)) != H264Parser::kEOStream) {
+
+      RETURN_ON_FAILURE(res == H264Parser::kOk, "Parsing H264 stream failed",
+                          PLATFORM_FAILURE,);
+
+      switch (nal.nal_unit_type) {
+         case H264NALU::kNonIDRSlice:
+         case H264NALU::kIDRSlice:
+         case H264NALU::kAUD:
+         case H264NALU::kEOSeq:
+         case H264NALU::kEOStream:
+              has_eof = true;
+              break;
+      };
+
+    }
+
+    //TODO(dhobsong): The above assumes that evry VCL slice will encode and entire frame
+    //and completely fit into a single buffer.  Handle the cases when it doesn't.
+
+    memcpy(omx_buffer->pBuffer + input_buffer_offset_, data, size);
+
+    if (!has_eof) {
+      input_buffer_offset_ += size;
+      child_task_runner_->PostTask(FROM_HERE, base::Bind(
+      &Client::NotifyEndOfBitstreamBuffer, client_,
+        input_buffer_details->second));
+      return;
+    }
+    omx_buffer->nFlags = OMX_BUFFERFLAG_ENDOFFRAME;
+    omx_buffer->nFilledLen = size + input_buffer_offset_;
+    omx_buffer->nAllocLen = omx_buffer->nFilledLen;
+  }
+
   // Give this buffer to OMX.
+  free_input_buffers_.pop();
+  omx_buffer->pAppPrivate = input_buffer_details;
   OMX_ERRORTYPE result = OMX_EmptyThisBuffer(component_handle_, omx_buffer);
+  input_buffer_size_ = 0;
+  input_buffer_offset_ = 0;
+
   RETURN_ON_OMX_FAILURE(result, "OMX_EmptyThisBuffer() failed",
                         PLATFORM_FAILURE,);
   input_buffers_at_component_++;
