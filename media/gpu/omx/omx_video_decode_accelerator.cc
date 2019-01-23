@@ -615,6 +615,12 @@ void OmxVideoDecodeAccelerator::Destroy() {
   BusyLoopInDestroying(std::move(deleter));
 }
 
+bool OmxVideoDecodeAccelerator::TryToSetupDecodeOnSeparateThread(
+    const base::WeakPtr<Client>& decode_client,
+    const scoped_refptr<base::SingleThreadTaskRunner>& decode_task_runner) {
+    return false;
+}
+
 void OmxVideoDecodeAccelerator::BeginTransitionToState(
     OMX_STATETYPE new_state) {
   VLOGF(1) << "new_state = " << new_state;
