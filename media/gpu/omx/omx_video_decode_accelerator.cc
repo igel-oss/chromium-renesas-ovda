@@ -341,6 +341,7 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
   RETURN_ON_FAILURE(OMX_DirOutput == port_format.eDir, "Expect Output Port",
                     PLATFORM_FAILURE, false);
 
+  output_buffer_size_ = port_format.nBufferSize;
   // Set output port parameters.
   port_format.nBufferCountActual = kNumPictureBuffers;
   
@@ -796,12 +797,12 @@ bool OmxVideoDecodeAccelerator::AllocateInputBuffers() {
 
 bool OmxVideoDecodeAccelerator::AllocateFakeOutputBuffers() {
   // Fill the component with fake output buffers.
-  VLOG(1) << __func__ << ": Allocating " << kNumPictureBuffers;
+  VLOG(1) << __func__ << ": Allocating " << kNumPictureBuffers << " buffers of size: " << output_buffer_size_;
   for (unsigned int i = 0; i < kNumPictureBuffers; ++i) {
     OMX_BUFFERHEADERTYPE* buffer;
     OMX_ERRORTYPE result;
     result = OMX_AllocateBuffer(component_handle_, &buffer, output_port_,
-                                NULL, 0);
+                                NULL, output_buffer_size_);
     RETURN_ON_OMX_FAILURE(result, "OMX_AllocateBuffer failed",
                           PLATFORM_FAILURE, false);
     buffer->pAppPrivate = NULL;
