@@ -14,6 +14,8 @@
 
 #include "media/gpu/omx/omx_stubs.h"
 
+#define VLOGF(level) VLOG(level) << __func__ << "(): "
+
 using media_gpu_omx::kModuleOmx;
 using media_gpu_omx::InitializeStubs;
 using media_gpu_omx::StubPathMap;
@@ -361,6 +363,7 @@ void OmxVideoDecodeAccelerator::Decode(
   TRACE_EVENT1("Video Decoder", "OVDA::Decode",
                "Buffer id", bitstream_buffer.id());
   DCHECK(child_task_runner_->BelongsToCurrentThread());
+  VLOGF(2) << "buffer id:" << bitstream_buffer.id();
 
   if (current_state_change_ == RESETTING ||
       current_state_change_ == INITIALIZING ||
@@ -614,6 +617,7 @@ void OmxVideoDecodeAccelerator::Destroy() {
 
 void OmxVideoDecodeAccelerator::BeginTransitionToState(
     OMX_STATETYPE new_state) {
+  VLOGF(1) << "new_state = " << new_state;
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   if (new_state != OMX_StateInvalid)
     DCHECK_NE(current_state_change_, NO_TRANSITION);
@@ -626,12 +630,14 @@ void OmxVideoDecodeAccelerator::BeginTransitionToState(
 }
 
 void OmxVideoDecodeAccelerator::OnReachedIdleInInitializing() {
+  VLOGF(1);
   DCHECK_EQ(client_state_, OMX_StateLoaded);
   client_state_ = OMX_StateIdle;
   BeginTransitionToState(OMX_StateExecuting);
 }
 
 void OmxVideoDecodeAccelerator::OnReachedExecutingInInitializing() {
+  VLOGF(1);
   DCHECK_EQ(client_state_, OMX_StateIdle);
   client_state_ = OMX_StateExecuting;
   current_state_change_ = NO_TRANSITION;
@@ -762,6 +768,7 @@ void OmxVideoDecodeAccelerator::StopOnError(
 
 bool OmxVideoDecodeAccelerator::AllocateInputBuffers() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
+  VLOG(1) << __func__ << ": Allocating " << input_buffer_count_ << " buffers of size: " << input_buffer_size_;
   for (int i = 0; i < input_buffer_count_; ++i) {
     OMX_BUFFERHEADERTYPE* buffer;
     OMX_ERRORTYPE result =
@@ -780,6 +787,7 @@ bool OmxVideoDecodeAccelerator::AllocateInputBuffers() {
 
 bool OmxVideoDecodeAccelerator::AllocateFakeOutputBuffers() {
   // Fill the component with fake output buffers.
+  VLOG(1) << __func__ << ": Allocating " << kNumPictureBuffers << " buffers of size: " << output_buffer_size_;
   for (unsigned int i = 0; i < kNumPictureBuffers; ++i) {
     OMX_BUFFERHEADERTYPE* buffer;
     OMX_ERRORTYPE result;
@@ -937,7 +945,7 @@ void OmxVideoDecodeAccelerator::OnOutputPortEnabled() {
 
 void OmxVideoDecodeAccelerator::FillBufferDoneTask(
     OMX_BUFFERHEADERTYPE* buffer) {
-
+  VLOGF(1);
   media::Picture* picture =
       reinterpret_cast<media::Picture*>(buffer->pAppPrivate);
   int picture_buffer_id = picture ? picture->picture_buffer_id() : -1;
@@ -1078,6 +1086,7 @@ void OmxVideoDecodeAccelerator::DispatchStateReached(OMX_STATETYPE reached) {
 void OmxVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
                                                          OMX_U32 data1,
                                                          OMX_U32 data2) {
+  VLOGF(1) << "event = " << event;
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   switch (event) {
     case OMX_EventCmdComplete:
@@ -1172,6 +1181,8 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::EventHandler(OMX_HANDLETYPE component,
                                                       OMX_U32 data1,
                                                       OMX_U32 data2,
                                                       OMX_PTR event_data) {
+
+  VLOGF(1);
   // Called on the OMX thread.
   OmxVideoDecodeAccelerator* decoder =
       static_cast<OmxVideoDecodeAccelerator*>(priv_data);
