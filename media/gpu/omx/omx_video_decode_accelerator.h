@@ -18,6 +18,7 @@
 #include "base/memory/shared_memory.h"
 #include "base/message_loop/message_loop.h"
 #include "content/common/content_export.h"
+#include "media/video/h264_parser.h"
 #include "media/video/video_decode_accelerator.h"
 #include "third_party/openmax/il/OMX_Component.h"
 #include "third_party/openmax/il/OMX_Core.h"
@@ -177,6 +178,10 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   int input_buffer_size_;
   OMX_U32 input_port_;
   int input_buffers_at_component_;
+
+  std::unique_ptr<H264Parser> h264_parser_;
+  int input_buffer_offset_;
+  int input_buffer_len_;
 
   // Following are output port related variables.
   OMX_U32 output_port_;
