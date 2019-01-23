@@ -15,15 +15,19 @@
 
 #include "media/gpu/omx/omx_stubs.h"
 
+
 #define VLOGF(level) VLOG(level) << __func__ << "(): "
 
 using media_gpu_omx::kModuleOmx;
+using media_gpu_omx::kModuleMmngr;
 using media_gpu_omx::InitializeStubs;
 using media_gpu_omx::StubPathMap;
 
 static const base::FilePath::CharType kOMXLib[] =
     FILE_PATH_LITERAL("/usr/lib/libomxr_core.so");
 
+static const base::FilePath::CharType kMMNGRLib[] =
+    FILE_PATH_LITERAL("/usr/lib/libmmngr.so.1");
 namespace media {
 
 // Helper typedef for input buffers.  This is used as the pAppPrivate field of
@@ -1330,6 +1334,7 @@ void OmxVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
 bool OmxVideoDecodeAccelerator::PostSandboxInitialization() {
   StubPathMap paths;
   paths[kModuleOmx].push_back(kOMXLib);
+  paths[kModuleMmngr].push_back(kMMNGRLib);
 
   return InitializeStubs(paths);
 }
