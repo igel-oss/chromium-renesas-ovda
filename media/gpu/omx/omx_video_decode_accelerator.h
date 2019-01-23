@@ -180,6 +180,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
 
   // Following are output port related variables.
   OMX_U32 output_port_;
+  int output_buffer_size_;
   int output_buffers_at_component_;
 
   gfx::Size last_requested_picture_buffer_dimensions_;
