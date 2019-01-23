@@ -51,6 +51,8 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   void Flush() override;
   void Reset() override;
   void Destroy() override;
+  bool TryToSetupDecodeOnSeparateThread(const base::WeakPtr<Client>& decode_client,
+   const scoped_refptr<base::SingleThreadTaskRunner>& decode_task_runner) override;
 
   base::WeakPtr<OmxVideoDecodeAccelerator> weak_this() { return weak_this_; }
 
