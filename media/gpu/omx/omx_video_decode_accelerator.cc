@@ -782,10 +782,10 @@ bool OmxVideoDecodeAccelerator::AllocateInputBuffers() {
   for (int i = 0; i < input_buffer_count_; ++i) {
     OMX_BUFFERHEADERTYPE* buffer;
     OMX_ERRORTYPE result =
-        OMX_UseBuffer(component_handle_, &buffer, input_port_,
+        OMX_AllocateBuffer(component_handle_, &buffer, input_port_,
                       NULL, /* pAppPrivate gets set in Decode(). */
-                      0, reinterpret_cast<OMX_U8*>(0x1));
-    RETURN_ON_OMX_FAILURE(result, "OMX_UseBuffer() Input buffer error",
+                      input_buffer_size_);
+    RETURN_ON_OMX_FAILURE(result, "OMX_AllocateBuffer() Input buffer error",
                           PLATFORM_FAILURE, false);
     buffer->nInputPortIndex = input_port_;
     buffer->nOffset = 0;
