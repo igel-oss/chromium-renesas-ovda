@@ -222,6 +222,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   Codec codec_;
   uint32_t h264_profile_;  // OMX_AVCProfile requested during Initialization.
   bool component_name_is_nvidia_;
+  bool deferred_init_allowed_;
 
   // Method to handle events
   void EventHandlerCompleteTask(OMX_EVENTTYPE event,

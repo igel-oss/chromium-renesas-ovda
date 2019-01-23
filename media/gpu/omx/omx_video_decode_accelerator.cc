@@ -239,6 +239,7 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
     return false;
 
   init_begun_ = true;
+  deferred_init_allowed_ = config.is_deferred_initialization_allowed;
   return true;
 }
 
@@ -659,9 +660,11 @@ void OmxVideoDecodeAccelerator::OnReachedExecutingInInitializing() {
     RETURN_ON_OMX_FAILURE(result, "OMX_FillThisBuffer()", PLATFORM_FAILURE,);
     ++output_buffers_at_component_;
   }
-
-  if (client_)
+  if (client_ && deferred_init_allowed_) {
     client_->NotifyInitializationComplete(true);
+  } else {
+    DecodeQueuedBitstreamBuffers();
+  }
 }
 
 void OmxVideoDecodeAccelerator::OnReachedPauseInResetting() {
@@ -793,7 +796,7 @@ bool OmxVideoDecodeAccelerator::AllocateInputBuffers() {
 
 bool OmxVideoDecodeAccelerator::AllocateFakeOutputBuffers() {
   // Fill the component with fake output buffers.
-  VLOG(1) << __func__ << ": Allocating " << kNumPictureBuffers << " buffers of size: " << output_buffer_size_;
+  VLOG(1) << __func__ << ": Allocating " << kNumPictureBuffers;
   for (unsigned int i = 0; i < kNumPictureBuffers; ++i) {
     OMX_BUFFERHEADERTYPE* buffer;
     OMX_ERRORTYPE result;
