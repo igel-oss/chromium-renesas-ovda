@@ -17,6 +17,8 @@
 #include "base/logging.h"
 #include "base/memory/shared_memory.h"
 #include "base/message_loop/message_loop.h"
+#include "base/synchronization/lock.h"
+#include "base/synchronization/condition_variable.h"
 #include "content/common/content_export.h"
 #include "media/video/h264_parser.h"
 #include "media/video/video_decode_accelerator.h"
@@ -168,6 +170,9 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   // point in calling client_->NotifyError().
   bool init_begun_;
 
+  base::Lock init_lock_;
+  base::ConditionVariable init_done_cond_;
+
   // IL-client state.
   OMX_STATETYPE client_state_;
   // See comment on CurrentStateChange above.
@@ -230,6 +235,11 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   bool component_name_is_nvidia_;
   bool deferred_init_allowed_;
 
+  // Handle syncronous transition to EXECUTING state when deferred init is
+  // not available.
+  void HandleSyncronousInit(OMX_EVENTTYPE event,
+                                OMX_U32 data1,
+                                OMX_U32 data2);
   // Method to handle events
   void EventHandlerCompleteTask(OMX_EVENTTYPE event,
                                 OMX_U32 data1,
