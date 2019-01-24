@@ -130,6 +130,7 @@ OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
       component_handle_(NULL),
       weak_this_factory_(this),
       init_begun_(false),
+      init_done_cond_(&init_lock_),
       client_state_(OMX_StateMax),
       current_state_change_(NO_TRANSITION),
       input_buffer_count_(0),
@@ -230,6 +231,10 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
   if (!CreateComponent())  // Does its own RETURN_ON_FAILURE dances.
     return false;
 
+  deferred_init_allowed_ = config.is_deferred_initialization_allowed;
+
+  VLOGF(1) << "Deferred initialization " << (deferred_init_allowed_ ? "allowed" : "not allowed");
+
   DCHECK_EQ(current_state_change_, NO_TRANSITION);
   current_state_change_ = INITIALIZING;
   BeginTransitionToState(OMX_StateIdle);
@@ -242,8 +247,20 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
   init_begun_ = true;
   input_buffer_offset_ = 0;
 
-  deferred_init_allowed_ = config.is_deferred_initialization_allowed;
+
+  if (deferred_init_allowed_)
+    return true;
+
+  /* Wait until we reach executing if deferred init is not allowed */
+  /* TODO: timeout? */
+
+  base::AutoLock auto_lock_(init_lock_);
+  while (current_state_change_ == INITIALIZING) {
+    init_done_cond_.Wait();
+  }
+  VLOGF(1) << "Sync Initialization complete";
   return true;
+
 }
 
 bool OmxVideoDecodeAccelerator::CreateComponent() {
@@ -696,7 +713,6 @@ bool OmxVideoDecodeAccelerator::TryToSetupDecodeOnSeparateThread(
 void OmxVideoDecodeAccelerator::BeginTransitionToState(
     OMX_STATETYPE new_state) {
   VLOGF(1) << "new_state = " << new_state;
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
   if (new_state != OMX_StateInvalid)
     DCHECK_NE(current_state_change_, NO_TRANSITION);
   if (current_state_change_ == ERRORING)
@@ -717,6 +733,7 @@ void OmxVideoDecodeAccelerator::OnReachedIdleInInitializing() {
 void OmxVideoDecodeAccelerator::OnReachedExecutingInInitializing() {
   VLOGF(1);
   DCHECK_EQ(client_state_, OMX_StateIdle);
+  base::AutoLock auto_lock_(init_lock_);
   client_state_ = OMX_StateExecuting;
   current_state_change_ = NO_TRANSITION;
 
@@ -733,8 +750,11 @@ void OmxVideoDecodeAccelerator::OnReachedExecutingInInitializing() {
   }
   if (client_ && deferred_init_allowed_) {
     client_->NotifyInitializationComplete(true);
-  } else {
+     // Drain queues of input & output buffers held during the init.
+    VLOGF(1) << "Deferred Initialization complete";
     DecodeQueuedBitstreamBuffers();
+  } else {
+    init_done_cond_.Signal();
   }
 }
 
@@ -1163,6 +1183,29 @@ void OmxVideoDecodeAccelerator::DispatchStateReached(OMX_STATETYPE reached) {
   }
 }
 
+void OmxVideoDecodeAccelerator::HandleSyncronousInit(OMX_EVENTTYPE event,
+                                                         OMX_U32 data1,
+                                                         OMX_U32 data2) {
+
+  VLOGF(1) << "event = " << event;
+  switch (event) {
+    case OMX_EventCmdComplete:
+      if (data1 == OMX_CommandStateSet) {
+        if (data2 == OMX_StateIdle) {
+          OnReachedIdleInInitializing();
+          return;
+        } else if (data2 == OMX_StateExecuting) {
+          OnReachedExecutingInInitializing();
+          return;
+        }
+      }
+      //fall through
+    default:
+      RETURN_ON_FAILURE(false, __func__ << "Unexpected unhandled event: " << event,
+                        PLATFORM_FAILURE,);
+  }
+}
+
 void OmxVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
                                                          OMX_U32 data1,
                                                          OMX_U32 data2) {
@@ -1267,6 +1310,13 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::EventHandler(OMX_HANDLETYPE component,
   OmxVideoDecodeAccelerator* decoder =
       static_cast<OmxVideoDecodeAccelerator*>(priv_data);
   DCHECK_EQ(component, decoder->component_handle_);
+
+  if (!decoder->deferred_init_allowed_ &&
+         decoder->current_state_change_ == INITIALIZING) {
+      decoder->HandleSyncronousInit(event, data1, data2);
+      return OMX_ErrorNone;
+  }
+
   decoder->child_task_runner_->PostTask(FROM_HERE, base::Bind(
       &OmxVideoDecodeAccelerator::EventHandlerCompleteTask,
       decoder->weak_this(), event, data1, data2));
