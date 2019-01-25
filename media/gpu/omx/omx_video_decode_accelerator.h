@@ -22,6 +22,7 @@
 #include "content/common/content_export.h"
 #include "media/video/h264_parser.h"
 #include "media/video/video_decode_accelerator.h"
+#include "third_party/mmngr/mmngr_user_public.h"
 #include "third_party/openmax/il/OMX_Component.h"
 #include "third_party/openmax/il/OMX_Core.h"
 #include "third_party/openmax/il/OMX_Video.h"
@@ -86,18 +87,19 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
     VP8
   };
 
-  // Helper struct for keeping track of the relationship between an OMX output
+  // Helper struct for keeping track of all output buffer metadata
   // buffer and the PictureBuffer it points to.
   struct OutputPicture {
-    OutputPicture(media::PictureBuffer p_b, OMX_BUFFERHEADERTYPE* o_b_h
-                  ,EGLImageKHR e_i
-                 )
-        : picture_buffer(p_b), omx_buffer_header(o_b_h)
-          ,egl_image(e_i)
+    OutputPicture(media::PictureBuffer p_b, OMX_BUFFERHEADERTYPE* o_b_h,
+                  EGLImageKHR e_i, MMNGR_ID m_id, uint32_t h_a)
+        : picture_buffer(p_b), omx_buffer_header(o_b_h),
+          egl_image(e_i), mem_id(m_id), hard_addr(h_a)
     {}
     media::PictureBuffer picture_buffer;
     OMX_BUFFERHEADERTYPE* omx_buffer_header;
     EGLImageKHR egl_image;
+    MMNGR_ID mem_id;
+    uint32_t hard_addr;
   };
 
   typedef std::map<int32_t, OutputPicture> OutputPictureById;
@@ -114,7 +116,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   // Buffer allocation/free methods for input and output buffers.
   bool AllocateInputBuffers();
   bool AllocateFakeOutputBuffers();
-  bool AllocateOutputBuffers();
+  bool AllocateOutputBuffers(int size);
   void FreeOMXBuffers();
 
   // Methods to handle OMX state transitions.  See section 3.1.1.2 of the spec.
