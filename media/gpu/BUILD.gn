@@ -45,6 +45,7 @@ if (use_omx_codec) {
     sources = [
       "omx/omx.sig",
       "omx/mmngr.sig",
+      "omx/mmngrbuf.sig",
     ]
     inputs = [
       extra_header,
