@@ -587,8 +587,23 @@ void OmxVideoDecodeAccelerator::AssignPictureBuffers(
                         PLATFORM_FAILURE,);
 
   for (size_t i = 0; i < buffers.size(); ++i) {
-    /*TODO: Allocate a new buffer from MMNGR, and create an EGLImage
-            from it. Make DMABufs if necessary */
+    MMNGR_ID mem_id;
+    uint32_t hard_addr;
+    void *dummy;
+    EGLImageKHR egl_image;
+
+    OMX_BUFFERHEADERTYPE* omx_buffer;
+    int ret =  mmngr_alloc_in_user_ext(&mem_id, port_format.nBufferSize,
+            &hard_addr, &dummy, MMNGR_PA_SUPPORT, NULL);
+
+    /* Make EGLImage */
+
+    pictures_.insert(std::make_pair(
+        buffers[i].id(), OutputPicture(buffers[i], NULL,
+                            egl_image, mem_id, hard_addr)));
+
+    /*TODO: Create an EGLImage.
+            Make DMABufs if necessary */
 
     /*
     EGLImageKHR egl_image =
@@ -600,10 +615,9 @@ void OmxVideoDecodeAccelerator::AssignPictureBuffers(
         buffers[i].id(), OutputPicture(buffers[i], NULL, egl_image))).second); */
   }
 
-  // These do their own RETURN_ON_FAILURE dances.
-  if (!AllocateOutputBuffers())
-    return;
   if (!SendCommandToPort(OMX_CommandPortEnable, output_port_))
+    return;
+  if (!AllocateOutputBuffers(port_format.nBufferSize))
     return;
 }
 
@@ -789,7 +803,7 @@ void OmxVideoDecodeAccelerator::OnReachedExecutingInInitializing() {
     RETURN_ON_OMX_FAILURE(result, "OMX_FillThisBuffer()", PLATFORM_FAILURE,);
     ++output_buffers_at_component_;
   }
-  if (client_ && deferred_init_allowed_) {
+  if (deferred_init_allowed_ && client_) {
     client_->NotifyInitializationComplete(true);
      // Drain queues of input & output buffers held during the init.
     VLOGF(1) << "Deferred Initialization complete";
@@ -944,28 +958,24 @@ bool OmxVideoDecodeAccelerator::AllocateFakeOutputBuffers() {
   return true;
 }
 
-bool OmxVideoDecodeAccelerator::AllocateOutputBuffers() {
+bool OmxVideoDecodeAccelerator::AllocateOutputBuffers(int size) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
   DCHECK(!pictures_.empty());
   for (OutputPictureById::iterator it = pictures_.begin();
        it != pictures_.end(); ++it) {
     media::PictureBuffer& picture_buffer = it->second.picture_buffer;
-    OMX_BUFFERHEADERTYPE** omx_buffer = &it->second.omx_buffer_header;
+    OutputPicture *output_picture = &it->second;
+    OMX_BUFFERHEADERTYPE** omx_buffer = &output_picture->omx_buffer_header;
+    uint32_t hard_addr = it->second.hard_addr;
     DCHECK(!*omx_buffer);
+
     OMX_ERRORTYPE result = OMX_UseBuffer(
-        component_handle_, omx_buffer, output_port_, NULL, 0,
-        reinterpret_cast<OMX_U8*>(&picture_buffer)); //TODO: Is this buffer private data?
+        component_handle_, omx_buffer, output_port_, output_picture, size,
+        reinterpret_cast<OMX_U8*>(hard_addr));
 
     RETURN_ON_OMX_FAILURE(result, "OMX_UseBuffer", PLATFORM_FAILURE, false);
 
-    // Here we set a garbage bitstream buffer id, and then overwrite it before
-    // passing to PictureReady. //TODO: why?
-    int garbage_bitstream_buffer_id = -1;
-    media::Picture* picture =
-        new media::Picture(picture_buffer.id(), garbage_bitstream_buffer_id,
-            gfx::Rect(), gfx::ColorSpace(), false); //TODO: Set up correct visible_rect size and color
-    (*omx_buffer)->pAppPrivate = picture;
   }
   return true;
 }
@@ -987,7 +997,6 @@ void OmxVideoDecodeAccelerator::FreeOMXBuffers() {
        it != pictures_.end(); ++it) {
     OMX_BUFFERHEADERTYPE* omx_buffer = it->second.omx_buffer_header;
     DCHECK(omx_buffer);
-    delete reinterpret_cast<media::Picture*>(omx_buffer->pAppPrivate);
     OMX_ERRORTYPE result =
         OMX_FreeBuffer(component_handle_, output_port_, omx_buffer);
     if (result != OMX_ErrorNone) {
@@ -996,6 +1005,7 @@ void OmxVideoDecodeAccelerator::FreeOMXBuffers() {
     }
     if (client_)
       client_->DismissPictureBuffer(it->first);
+    mmngr_free_in_user_ext(it->second.mem_id);
   }
   pictures_.clear();
 
@@ -1086,10 +1096,12 @@ void OmxVideoDecodeAccelerator::OnOutputPortEnabled() {
 
 void OmxVideoDecodeAccelerator::FillBufferDoneTask(
     OMX_BUFFERHEADERTYPE* buffer) {
-  VLOGF(1);
-  media::Picture* picture =
-      reinterpret_cast<media::Picture*>(buffer->pAppPrivate);
-  int picture_buffer_id = picture ? picture->picture_buffer_id() : -1;
+  VLOGF(2);
+  OutputPicture *output_picture =
+      reinterpret_cast<OutputPicture*>(buffer->pAppPrivate);
+
+  int picture_buffer_id = output_picture ? output_picture->picture_buffer.id() : -1;
+
   TRACE_EVENT2("Video Decoder", "OVDA::FillBufferDoneTask",
                "Buffer id", buffer->nTimeStamp,
                "Picture id", picture_buffer_id);
@@ -1131,11 +1143,12 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
     return;
   }
 
-  DCHECK(picture);
+  media::Picture picture(picture_buffer_id, buffer->nTimeStamp,
+            gfx::Rect(), gfx::ColorSpace(), false); //TODO: Set up correct visible_rect size and color*/
+
   // See Decode() for an explanation of this abuse of nTimeStamp.
-  picture->set_bitstream_buffer_id(buffer->nTimeStamp);
   if (client_)
-    client_->PictureReady(*picture);
+    client_->PictureReady(picture);
 }
 
 void OmxVideoDecodeAccelerator::EmptyBufferDoneTask(
