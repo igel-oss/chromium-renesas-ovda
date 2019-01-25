@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 #include "media/gpu/omx/omx_video_decode_accelerator.h"
 
+#include <libdrm/drm_fourcc.h>
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/stl_util.h"
@@ -12,14 +13,17 @@
 #include "media/base/bitstream_buffer.h"
 #include "media/video/picture.h"
 #include "third_party/openmax/il/OMXR_Extension_vdcmn.h"
+#include "ui/gl/egl_util.h"
 
 #include "media/gpu/omx/omx_stubs.h"
 
+#define PAGE_SIZE 4096
 
 #define VLOGF(level) VLOG(level) << __func__ << "(): "
 
 using media_gpu_omx::kModuleOmx;
 using media_gpu_omx::kModuleMmngr;
+using media_gpu_omx::kModuleMmngrbuf;
 using media_gpu_omx::InitializeStubs;
 using media_gpu_omx::StubPathMap;
 
@@ -28,6 +32,10 @@ static const base::FilePath::CharType kOMXLib[] =
 
 static const base::FilePath::CharType kMMNGRLib[] =
     FILE_PATH_LITERAL("/usr/lib/libmmngr.so.1");
+
+static const base::FilePath::CharType kMMNGRBufLib[] =
+    FILE_PATH_LITERAL("/usr/lib/libmmngrbuf.so.1");
+
 namespace media {
 
 // Helper typedef for input buffers.  This is used as the pAppPrivate field of
@@ -370,7 +378,8 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
 
   // Set output port parameters.
   port_format.nBufferCountActual = kNumPictureBuffers;
-  
+  port_format.format.video.eColorFormat = OMX_COLOR_FormatYUV420SemiPlanar;
+
   // Force an OMX_EventPortSettingsChanged event to be sent once we know the
   // stream's real dimensions (which can only happen once some Decode() work has
   // been done).
@@ -587,32 +596,62 @@ void OmxVideoDecodeAccelerator::AssignPictureBuffers(
                         PLATFORM_FAILURE,);
 
   for (size_t i = 0; i < buffers.size(); ++i) {
-    MMNGR_ID mem_id;
-    uint32_t hard_addr;
     void *dummy;
     EGLImageKHR egl_image;
+    struct MmngrBuffer mbuf;
+    int alloc_size = (port_format.nBufferSize + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1);
 
-    OMX_BUFFERHEADERTYPE* omx_buffer;
-    int ret =  mmngr_alloc_in_user_ext(&mem_id, port_format.nBufferSize,
-            &hard_addr, &dummy, MMNGR_PA_SUPPORT, NULL);
+    gfx::Size size = buffers[i].size();
+    DCHECK_EQ(picture_buffer_dimensions_.width(), size.width());
+    DCHECK_EQ(picture_buffer_dimensions_.height(), size.height());
 
+    int ret = mmngr_alloc_in_user_ext(&mbuf.mem_id, alloc_size,
+            &mbuf.hard_addr, &dummy, MMNGR_PA_SUPPORT, NULL);
+
+    RETURN_ON_FAILURE(!ret, "Cannot allocate output buffer memory" << ret,
+        PLATFORM_FAILURE,);
+
+    ret = mmngr_export_start_in_user_ext(&mbuf.dmabuf_id, alloc_size,
+        mbuf.hard_addr, &mbuf.dmabuf_fd, NULL);
     /* Make EGLImage */
 
-    pictures_.insert(std::make_pair(
-        buffers[i].id(), OutputPicture(buffers[i], NULL,
-                            egl_image, mem_id, hard_addr)));
+    std::vector<EGLint> attrs;
+    attrs.push_back(EGL_WIDTH);
+    attrs.push_back(size.width());
+    attrs.push_back(EGL_HEIGHT);
+    attrs.push_back(size.height());
+    attrs.push_back(EGL_LINUX_DRM_FOURCC_EXT);
+    attrs.push_back(DRM_FORMAT_NV12);
 
-    /*TODO: Create an EGLImage.
-            Make DMABufs if necessary */
+    static const int plane_count = 2; // NV12 has 2 planes
 
-    /*
-    EGLImageKHR egl_image =
-        texture_to_egl_image_translator_->TranslateToEglImage(
-            egl_display_, egl_context_,
-            buffers[i].texture_id(),
-            last_requested_picture_buffer_dimensions_); 
-    CHECK(pictures_.insert(std::make_pair(
-        buffers[i].id(), OutputPicture(buffers[i], NULL, egl_image))).second); */
+    size_t plane_offset = 0;
+    for (size_t plane = 0; plane < plane_count; ++plane) {
+      attrs.push_back(EGL_DMA_BUF_PLANE0_FD_EXT + plane * 3);
+      attrs.push_back(mbuf.dmabuf_fd);
+      attrs.push_back(EGL_DMA_BUF_PLANE0_OFFSET_EXT + plane * 3);
+      attrs.push_back(plane_offset);
+      attrs.push_back(EGL_DMA_BUF_PLANE0_PITCH_EXT + plane * 3);
+      attrs.push_back(port_format.format.video.nStride);
+
+      plane_offset += port_format.format.video.nStride *
+                      port_format.format.video.nSliceHeight;
+    }
+
+    attrs.push_back(EGL_NONE);
+
+    uint32_t texture_id = buffers[i].service_texture_ids()[0];
+
+    egl_image = eglCreateImageKHR(
+        egl_display_, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, &attrs[0]);
+    RETURN_ON_FAILURE((egl_image != EGL_NO_IMAGE_KHR), "Cannot create EGLImage " << ui::GetLastEGLErrorString(),
+          PLATFORM_FAILURE,);
+
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, texture_id);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, egl_image);
+
+    pictures_.insert(std::make_pair(buffers[i].id(),
+        OutputPicture(buffers[i], NULL, egl_image, mbuf)));
   }
 
   if (!SendCommandToPort(OMX_CommandPortEnable, output_port_))
@@ -964,10 +1003,9 @@ bool OmxVideoDecodeAccelerator::AllocateOutputBuffers(int size) {
   DCHECK(!pictures_.empty());
   for (OutputPictureById::iterator it = pictures_.begin();
        it != pictures_.end(); ++it) {
-    media::PictureBuffer& picture_buffer = it->second.picture_buffer;
     OutputPicture *output_picture = &it->second;
     OMX_BUFFERHEADERTYPE** omx_buffer = &output_picture->omx_buffer_header;
-    uint32_t hard_addr = it->second.hard_addr;
+    uint32_t hard_addr = it->second.mmngr_buf.hard_addr;
     DCHECK(!*omx_buffer);
 
     OMX_ERRORTYPE result = OMX_UseBuffer(
@@ -1003,9 +1041,13 @@ void OmxVideoDecodeAccelerator::FreeOMXBuffers() {
       DLOG(ERROR) << "OMX_FreeBuffer failed: 0x" << std::hex << result;
       failure_seen = true;
     }
+
+    eglDestroyImageKHR(egl_display_, it->second.egl_image);
+
     if (client_)
       client_->DismissPictureBuffer(it->first);
-    mmngr_free_in_user_ext(it->second.mem_id);
+    mmngr_export_end_in_user_ext(it->second.mmngr_buf.dmabuf_id);
+    mmngr_free_in_user_ext(it->second.mmngr_buf.mem_id);
   }
   pictures_.clear();
 
@@ -1051,15 +1093,15 @@ void OmxVideoDecodeAccelerator::OnOutputPortDisabled() {
   // ProvidePictureBuffers() will trigger AssignPictureBuffers, which ultimately
   // assigns the textures to the component and re-enables the port.
   const OMX_VIDEO_PORTDEFINITIONTYPE& vformat = port_format.format.video;
-  last_requested_picture_buffer_dimensions_.SetSize(vformat.nFrameWidth,
+  picture_buffer_dimensions_.SetSize(vformat.nFrameWidth,
                                                     vformat.nFrameHeight);
   if (client_) {
     client_->ProvidePictureBuffers(
         kNumPictureBuffers,
-        VideoPixelFormat(), // TODO: Set up and check these formats
+        PIXEL_FORMAT_NV12,
         1,
-        gfx::Size(vformat.nFrameWidth, vformat.nFrameHeight),
-        GL_TEXTURE_2D);
+        picture_buffer_dimensions_,
+        GL_TEXTURE_EXTERNAL_OES);
   }
 }
 
@@ -1143,8 +1185,9 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
     return;
   }
 
+  //TODO(dhobsong): Set up colorspace (BT.601 vs BT.709)*/
   media::Picture picture(picture_buffer_id, buffer->nTimeStamp,
-            gfx::Rect(), gfx::ColorSpace(), false); //TODO: Set up correct visible_rect size and color*/
+            gfx::Rect(picture_buffer_dimensions_), gfx::ColorSpace(), false);
 
   // See Decode() for an explanation of this abuse of nTimeStamp.
   if (client_)
@@ -1348,6 +1391,7 @@ bool OmxVideoDecodeAccelerator::PostSandboxInitialization() {
   StubPathMap paths;
   paths[kModuleOmx].push_back(kOMXLib);
   paths[kModuleMmngr].push_back(kMMNGRLib);
+  paths[kModuleMmngrbuf].push_back(kMMNGRBufLib);
 
   return InitializeStubs(paths);
 }
