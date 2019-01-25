@@ -11,6 +11,7 @@
 #include "base/trace_event/trace_event.h"
 #include "media/base/bitstream_buffer.h"
 #include "media/video/picture.h"
+#include "third_party/openmax/il/OMXR_Extension_vdcmn.h"
 
 #include "media/gpu/omx/omx_stubs.h"
 
@@ -230,6 +231,8 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
 
   if (!CreateComponent())  // Does its own RETURN_ON_FAILURE dances.
     return false;
+  if (!DecoderSpecificInitialization())  // Does its own RETURN_ON_FAILURE dances.
+    return false;
 
   deferred_init_allowed_ = config.is_deferred_initialization_allowed;
 
@@ -380,6 +383,40 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
                             &port_format);
   RETURN_ON_OMX_FAILURE(result,
                         "SetParameter(OMX_IndexParamPortDefinition) failed",
+                        PLATFORM_FAILURE, false);
+  return true;
+}
+
+bool OmxVideoDecodeAccelerator::DecoderSpecificInitialization() {
+  OMXR_MC_VIDEO_PARAM_REORDERTYPE param_reorder;
+  InitParam(&param_reorder);
+
+  param_reorder.nPortIndex = output_port_;
+  param_reorder.bReorder = OMX_FALSE;
+
+  OMX_ERRORTYPE result = OMX_SetParameter(component_handle_,
+                            static_cast<OMX_INDEXTYPE> (OMXR_MC_IndexParamVideoReorder),
+                            &param_reorder);
+
+  RETURN_ON_OMX_FAILURE(result,
+                        "SetParameter(OMXR_MC_IndexParamVideoReorder) failed",
+                        PLATFORM_FAILURE, false);
+
+  // Set up timestamps to be returned in decode order (i.e. don't adjust
+  // values to make them come out in ascneding order)
+
+  OMXR_MC_VIDEO_PARAM_TIME_STAMP_MODETYPE param_ts;
+  InitParam(&param_ts);
+
+  param_ts.nPortIndex = output_port_;
+  param_ts.eTimeStampMode = OMXR_MC_VIDEO_TimeStampModeDecodeOrder;
+
+  result = OMX_SetParameter(component_handle_,
+                            static_cast<OMX_INDEXTYPE> (OMXR_MC_IndexParamVideoTimeStampMode),
+                            &param_ts);
+
+  RETURN_ON_OMX_FAILURE(result,
+                        "SetParameter(OMXR_MC_IndexParamVideoTimeStampMode) failed",
                         PLATFORM_FAILURE, false);
   return true;
 }
