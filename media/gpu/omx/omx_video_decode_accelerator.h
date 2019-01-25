@@ -108,6 +108,9 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
 
   // Create the Component for OMX. Handles all OMX initialization.
   bool CreateComponent();
+  // Do any decoder specific initialization not covered in the standard OMX spec
+  bool DecoderSpecificInitialization();
+
   // Buffer allocation/free methods for input and output buffers.
   bool AllocateInputBuffers();
   bool AllocateFakeOutputBuffers();
