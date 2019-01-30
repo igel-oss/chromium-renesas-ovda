@@ -242,6 +242,14 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   std::unique_ptr<base::WeakPtrFactory<Client>> client_ptr_factory_;
   base::WeakPtr<Client> client_;
 
+
+  // The following are used when performing Docode() tasks from
+  // a separate thread.  Otherwise they will be set to
+  // |child_task_runner_| and |client_| respectively
+
+  scoped_refptr<base::SingleThreadTaskRunner> decode_task_runner_;
+  base::WeakPtr<Client> decode_client_;
+
   // These members are only used during Initialization.
   Codec codec_;
   uint32_t h264_profile_;  // OMX_AVCProfile requested during Initialization.
