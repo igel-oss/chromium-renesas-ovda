@@ -150,6 +150,7 @@ OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
       input_buffer_size_(0),
       input_port_(0),
       input_buffers_at_component_(0),
+      first_input_buffer_sent_(false),
       output_port_(0),
       output_buffers_at_component_(0),
       egl_display_(egl_display),
@@ -536,6 +537,7 @@ void OmxVideoDecodeAccelerator::Decode(
     omx_buffer->nFlags = OMX_BUFFERFLAG_ENDOFFRAME;
     omx_buffer->nFilledLen = size + input_buffer_offset_;
     omx_buffer->nAllocLen = omx_buffer->nFilledLen;
+    first_input_buffer_sent_ = true;
   }
 
   // Give this buffer to OMX.
@@ -764,8 +766,16 @@ void OmxVideoDecodeAccelerator::Reset() {
   DCHECK(current_state_change_ == NO_TRANSITION ||
         current_state_change_ == FLUSHING);
   DCHECK_EQ(client_state_, OMX_StateExecuting);
-  current_state_change_ = RESETTING;
-  BeginTransitionToState(OMX_StatePause);
+  if (first_input_buffer_sent_) {
+    current_state_change_ = RESETTING;
+    BeginTransitionToState(OMX_StatePause);
+  } else {
+     input_buffer_offset_ = 0;
+     first_input_buffer_sent_ = false;
+
+     child_task_runner_->PostTask(FROM_HERE, base::Bind(
+        &Client::NotifyResetDone, client_));
+  }
 }
 
 void OmxVideoDecodeAccelerator::Destroy() {
