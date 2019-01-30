@@ -761,7 +761,8 @@ void OmxVideoDecodeAccelerator::OutputPortFlushDone() {
 
 void OmxVideoDecodeAccelerator::Reset() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
-  DCHECK_EQ(current_state_change_, NO_TRANSITION);
+  DCHECK(current_state_change_ == NO_TRANSITION ||
+        current_state_change_ == FLUSHING);
   DCHECK_EQ(client_state_, OMX_StateExecuting);
   current_state_change_ = RESETTING;
   BeginTransitionToState(OMX_StatePause);
