@@ -232,13 +232,14 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
   client_ptr_factory_.reset(new base::WeakPtrFactory<Client>(client));
   client_ = client_ptr_factory_->GetWeakPtr();
 
-// TODO: Check the config supported_output_formats to make sure that it matches what we can output
   if (!decode_task_runner_) {
     decode_task_runner_ = child_task_runner_;
     decode_client_ = client_;
   }
 
-/* TODO: Is this a function call? How is this being checked? Does it work for
+// TODO(dhobsong): Check the config supported_output_formats to make sure that it matches what we can output
+
+/* TODO(dhobsong): Replace this locally rolled fence handling with gl::GLFence
    OpenGL ES ?
   RETURN_ON_FAILURE(gfx::g_driver_egl.ext.b_EGL_KHR_fence_sync,
                     "Platform does not support EGL_KHR_fence_sync",
@@ -272,7 +273,7 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
     return true;
 
   /* Wait until we reach executing if deferred init is not allowed */
-  /* TODO: timeout? */
+  /* TODO(dhobsong): timeout */
 
   base::AutoLock auto_lock_(init_lock_);
   while (current_state_change_ == INITIALIZING) {
@@ -291,7 +292,6 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
     &OmxVideoDecodeAccelerator::FillBufferCallback
   };
 
-  // TODO: Set to R-Car names
   OMX_STRING role_name = codec_ == H264 ?
       const_cast<OMX_STRING>("video_decoder.avc") :
       const_cast<OMX_STRING>("video_decoder.vpx");
@@ -336,11 +336,9 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
                     PLATFORM_FAILURE, false);
 
   input_port_ = port_param.nStartPortNumber;
-  //TODO: Is this true?
   output_port_ = input_port_ + 1;
 
   // Set role for the component because components can have multiple roles.
-  // TODO: Maybe unnecessary, but leave this in if it works
   OMX_PARAM_COMPONENTROLETYPE role_type;
   InitParam(&role_type);
   base::strlcpy(reinterpret_cast<char*>(role_type.cRole),
@@ -485,11 +483,9 @@ void OmxVideoDecodeAccelerator::Decode(
   RETURN_ON_FAILURE(shm->Map(bitstream_buffer.size()),
                     "Failed to SharedMemory::Map()", UNREADABLE_INPUT,);
 
-  //TODO: Set up more appropriate pAppPrivate data
-
   SharedMemoryAndId* input_buffer_details = new SharedMemoryAndId();
 
-  //TODO: What is this "release" doing?
+  //TODO(dhobsong): What is this "release" doing?
 
   input_buffer_details->first.reset(shm.release());
   input_buffer_details->second = bitstream_buffer.id();
@@ -911,7 +907,7 @@ void OmxVideoDecodeAccelerator::OnReachedExecutingInResetting() {
 // outlives the shutdown dance, even during process shutdown.  We do this by
 // repeatedly enqueuing a no-op task until shutdown is complete, since
 // MessageLoop's shutdown drains pending tasks.
-// TODO: Yes indeed.  Review this.
+// TODO(dhobsong): Yes indeed.  Review this.
 void OmxVideoDecodeAccelerator::BusyLoopInDestroying(
     std::unique_ptr<OmxVideoDecodeAccelerator> self) {
   if (!component_handle_) return;
@@ -1070,7 +1066,7 @@ void OmxVideoDecodeAccelerator::FreeOMXBuffers() {
   }
   pictures_.clear();
 
-  // Delete pending fake_output_buffers_ //TODO: still not liking these
+  // Delete pending fake_output_buffers_ //TODO(dhobsong): still not liking these
   for (std::set<OMX_BUFFERHEADERTYPE*>::iterator it =
            fake_output_buffers_.begin();
        it != fake_output_buffers_.end(); ++it) {
