@@ -233,6 +233,10 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
   client_ = client_ptr_factory_->GetWeakPtr();
 
 // TODO: Check the config supported_output_formats to make sure that it matches what we can output
+  if (!decode_task_runner_) {
+    decode_task_runner_ = child_task_runner_;
+    decode_client_ = client_;
+  }
 
 /* TODO: Is this a function call? How is this being checked? Does it work for
    OpenGL ES ?
@@ -529,8 +533,8 @@ void OmxVideoDecodeAccelerator::Decode(
 
     if (!has_eof) {
       input_buffer_offset_ += size;
-      child_task_runner_->PostTask(FROM_HERE, base::Bind(
-      &Client::NotifyEndOfBitstreamBuffer, client_,
+      decode_task_runner_->PostTask(FROM_HERE, base::Bind(
+      &Client::NotifyEndOfBitstreamBuffer, decode_client_,
         input_buffer_details->second));
       return;
     }
@@ -812,7 +816,11 @@ void OmxVideoDecodeAccelerator::Destroy() {
 bool OmxVideoDecodeAccelerator::TryToSetupDecodeOnSeparateThread(
     const base::WeakPtr<Client>& decode_client,
     const scoped_refptr<base::SingleThreadTaskRunner>& decode_task_runner) {
-    return false;
+
+    decode_client_ = decode_client;
+    decode_task_runner_ = decode_task_runner;
+
+    return true;
 }
 
 void OmxVideoDecodeAccelerator::BeginTransitionToState(
@@ -1158,7 +1166,7 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
   TRACE_EVENT2("Video Decoder", "OVDA::FillBufferDoneTask",
                "Buffer id", buffer->nTimeStamp,
                "Picture id", picture_buffer_id);
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
+  DCHECK(decode_task_runner_->BelongsToCurrentThread());
   DCHECK_GT(output_buffers_at_component_, 0);
   --output_buffers_at_component_;
 
@@ -1201,8 +1209,8 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
             gfx::Rect(picture_buffer_dimensions_), gfx::ColorSpace(), false);
 
   // See Decode() for an explanation of this abuse of nTimeStamp.
-  if (client_)
-    client_->PictureReady(picture);
+  if (decode_client_)
+    decode_client_->PictureReady(picture);
 }
 
 void OmxVideoDecodeAccelerator::EmptyBufferDoneTask(
@@ -1222,8 +1230,8 @@ void OmxVideoDecodeAccelerator::EmptyBufferDoneTask(
       reinterpret_cast<SharedMemoryAndId*>(buffer->pAppPrivate);
   DCHECK(input_buffer_details);
   buffer->pAppPrivate = NULL;
-  if (client_)
-    client_->NotifyEndOfBitstreamBuffer(input_buffer_details->second);
+  if (decode_client_)
+    decode_client_->NotifyEndOfBitstreamBuffer(input_buffer_details->second);
   delete input_buffer_details;
 
   DecodeQueuedBitstreamBuffers();
@@ -1444,7 +1452,7 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::EmptyBufferCallback(
   OmxVideoDecodeAccelerator* decoder =
       static_cast<OmxVideoDecodeAccelerator*>(priv_data);
   DCHECK_EQ(component, decoder->component_handle_);
-  decoder->child_task_runner_->PostTask(FROM_HERE, base::Bind(
+  decoder->decode_task_runner_->PostTask(FROM_HERE, base::Bind(
       &OmxVideoDecodeAccelerator::EmptyBufferDoneTask, decoder->weak_this(),
       buffer));
   return OMX_ErrorNone;
@@ -1465,7 +1473,7 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::FillBufferCallback(
   OmxVideoDecodeAccelerator* decoder =
       static_cast<OmxVideoDecodeAccelerator*>(priv_data);
   DCHECK_EQ(component, decoder->component_handle_);
-  decoder->child_task_runner_->PostTask(FROM_HERE, base::Bind(
+  decoder->decode_task_runner_->PostTask(FROM_HERE, base::Bind(
       &OmxVideoDecodeAccelerator::FillBufferDoneTask, decoder->weak_this(),
       buffer));
   return OMX_ErrorNone;
