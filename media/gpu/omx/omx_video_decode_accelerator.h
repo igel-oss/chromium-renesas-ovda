@@ -28,6 +28,7 @@
 #include "third_party/openmax/il/OMX_Core.h"
 #include "third_party/openmax/il/OMX_Video.h"
 #include "ui/gl/gl_bindings.h"
+#include "ui/gl/gl_fence.h"
 
 namespace media {
 
@@ -293,21 +294,10 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
 
   // When we get a texture back via ReusePictureBuffer(), we want to ensure
   // that its contents have been read out by rendering layer, before we start
-  // overwriting it with the decoder. This class is used to wait for a sync
-  // object inserted into the GPU command stream at the time of
-  // ReusePictureBuffer. This guarantees that the object gets into the stream
-  // after the corresponding texture commands have been inserted into it. Once
-  // the sync object is signalled, we are sure that the stream reached the sync
-  // object, which ensures that all commands related to the texture we are
-  // getting back have been finished as well.
-  class PictureSyncObject;
-
-  // Check if the client is done reading out from the texture. If yes, queue
-  // it for reuse by the decoder. Otherwise post self as a delayed task
-  // to check later.
-  void CheckPictureStatus(int32_t picture_buffer_id
-                          ,std::unique_ptr<PictureSyncObject> egl_sync_obj
-                         );
+  // overwriting it with the decoder. Use a GPU fence and CheckPicutreStatus()
+  // to poll for the fence completion before sending it to the decoder.
+  void CheckPictureStatus(int32_t picture_buffer_id,
+            std::unique_ptr<gl::GLFence> fence_obj);
 
   // Queue a picture for use by the decoder, either by sending it directly to it
   // via OMX_FillThisBuffer, or by queueing it for later if we are RESETTING.

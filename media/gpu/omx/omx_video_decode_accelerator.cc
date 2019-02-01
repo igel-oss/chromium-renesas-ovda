@@ -100,42 +100,6 @@ static OMX_U32 MapH264ProfileToOMXAVCProfile(uint32_t profile) {
       log << ", OMX result: 0x" << std::hex << omx_result,              \
       error, ret_val)
 
-// static
-class OmxVideoDecodeAccelerator::PictureSyncObject {
- public:
-  // Create a sync object and insert into the GPU command stream.
-  PictureSyncObject(EGLDisplay egl_display);
-  ~PictureSyncObject();
-
-  bool IsSynced();
-
- private:
-  EGLSyncKHR egl_sync_obj_;
-  EGLDisplay egl_display_;
-};
-
-OmxVideoDecodeAccelerator::PictureSyncObject::PictureSyncObject(
-    EGLDisplay egl_display)
-    : egl_display_(egl_display) {
-  DCHECK(egl_display_ != EGL_NO_DISPLAY);
-
-  egl_sync_obj_ = eglCreateSyncKHR(egl_display_, EGL_SYNC_FENCE_KHR, NULL);
-  DCHECK_NE(egl_sync_obj_, EGL_NO_SYNC_KHR);
-}
-
-OmxVideoDecodeAccelerator::PictureSyncObject::~PictureSyncObject() {
-  eglDestroySyncKHR(egl_display_, egl_sync_obj_);
-}
-
-bool OmxVideoDecodeAccelerator::PictureSyncObject::IsSynced() {
-  EGLint value = EGL_UNSIGNALED_KHR;
-  EGLBoolean ret = eglGetSyncAttribKHR(
-      egl_display_, egl_sync_obj_, EGL_SYNC_STATUS_KHR, &value);
-  DCHECK(ret) << "Failed getting sync object state.";
-
-  return value == EGL_SIGNALED_KHR;
-}
-
 OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
     EGLDisplay egl_display,
     const base::Callback<bool(void)>& make_context_current)
@@ -239,13 +203,10 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
 
 // TODO(dhobsong): Check the config supported_output_formats to make sure that it matches what we can output
 
-/* TODO(dhobsong): Replace this locally rolled fence handling with gl::GLFence
-   OpenGL ES ?
-  RETURN_ON_FAILURE(gfx::g_driver_egl.ext.b_EGL_KHR_fence_sync,
-                    "Platform does not support EGL_KHR_fence_sync",
+  RETURN_ON_FAILURE(gl::GLFence::IsSupported(),
+                    "Platform does not support GL fences",
                     PLATFORM_FAILURE,
                     false);
-*/
 
   if (!CreateComponent())  // Does its own RETURN_ON_FAILURE dances.
     return false;
@@ -666,16 +627,16 @@ void OmxVideoDecodeAccelerator::ReusePictureBuffer(int32_t picture_buffer_id) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   TRACE_EVENT1("Video Decoder", "OVDA::ReusePictureBuffer",
                "Picture id", picture_buffer_id);
-  std::unique_ptr<PictureSyncObject> egl_sync_obj(
-      new PictureSyncObject(egl_display_));
+
+  auto picture_sync_fence = gl::GLFence::Create();
 
   // Start checking sync status periodically.
-  CheckPictureStatus(picture_buffer_id, std::move(egl_sync_obj));
+  CheckPictureStatus(picture_buffer_id, std::move(picture_sync_fence));
 }
 
 void OmxVideoDecodeAccelerator::CheckPictureStatus(
     int32_t picture_buffer_id,
-    std::unique_ptr<PictureSyncObject> egl_sync_obj
+    std::unique_ptr<gl::GLFence> fence_obj
     ) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
@@ -683,10 +644,10 @@ void OmxVideoDecodeAccelerator::CheckPictureStatus(
   // stopped. In that case we may never call QueuePictureBuffer().
   // This is fine though, because all pictures, irrespective of their state,
   // are in pictures_ map and that's what will be used to do the clean up.
-  if (!egl_sync_obj->IsSynced()) {
+  if (!fence_obj->HasCompleted()) {
     child_task_runner_->PostDelayedTask(FROM_HERE, base::Bind(
         &OmxVideoDecodeAccelerator::CheckPictureStatus, weak_this_,
-        picture_buffer_id, base::Passed(&egl_sync_obj)),
+        picture_buffer_id, base::Passed(&fence_obj)),
         base::TimeDelta::FromMilliseconds(kSyncPollDelayMs));
     return;
   }
