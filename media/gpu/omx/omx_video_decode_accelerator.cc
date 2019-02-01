@@ -400,8 +400,9 @@ bool OmxVideoDecodeAccelerator::DecoderSpecificInitialization() {
 
 void OmxVideoDecodeAccelerator::Decode(
     const media::BitstreamBuffer& bitstream_buffer) {
-  TRACE_EVENT1("Video Decoder", "OVDA::Decode",
-               "Buffer id", bitstream_buffer.id());
+  TRACE_EVENT2("Video Decoder", "OVDA::Decode",
+               "Buffer id", bitstream_buffer.id(),
+               "Component input buffers", input_buffers_at_component_ + 1);
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   VLOGF(2) << "buffer id:" << bitstream_buffer.id();
 
@@ -639,6 +640,8 @@ void OmxVideoDecodeAccelerator::CheckPictureStatus(
     std::unique_ptr<gl::GLFence> fence_obj
     ) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
+  TRACE_EVENT1("Video Decoder", "OVDA::CheckPictureStatus",
+               "Picture id", picture_buffer_id);
 
   // It's possible for this task to never run if the message loop is
   // stopped. In that case we may never call QueuePictureBuffer().
@@ -677,6 +680,9 @@ void OmxVideoDecodeAccelerator::QueuePictureBuffer(int32_t picture_buffer_id) {
   OutputPicture& output_picture = it->second;
 
   ++output_buffers_at_component_;
+  TRACE_EVENT2("Video Decoder", "OVDA::QueuePictureBuffer",
+               "Picture id", picture_buffer_id,
+               "At component", output_buffers_at_component_);
   OMX_ERRORTYPE result =
       OMX_FillThisBuffer(component_handle_, output_picture.omx_buffer_header);
   RETURN_ON_OMX_FAILURE(result, "OMX_FillThisBuffer() failed",
