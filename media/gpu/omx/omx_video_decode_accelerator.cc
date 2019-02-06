@@ -201,7 +201,10 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
     decode_client_ = client_;
   }
 
-// TODO(dhobsong): Check the config supported_output_formats to make sure that it matches what we can output
+  if (!config.supported_output_formats.empty() &&
+      !base::ContainsValue(config.supported_output_formats,
+        PIXEL_FORMAT_NV12))
+    return false;
 
   RETURN_ON_FAILURE(gl::GLFence::IsSupported(),
                     "Platform does not support GL fences",
