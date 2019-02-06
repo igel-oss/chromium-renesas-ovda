@@ -448,12 +448,9 @@ void OmxVideoDecodeAccelerator::Decode(
   RETURN_ON_FAILURE(shm->Map(bitstream_buffer.size()),
                     "Failed to SharedMemory::Map()", UNREADABLE_INPUT,);
 
-  SharedMemoryAndId* input_buffer_details = new SharedMemoryAndId();
+  SharedMemoryAndId* input_buffer_details = new SharedMemoryAndId(
+        std::move(shm), bitstream_buffer.id());
 
-  //TODO(dhobsong): What is this "release" doing?
-
-  input_buffer_details->first.reset(shm.release());
-  input_buffer_details->second = bitstream_buffer.id();
   DCHECK(!omx_buffer->pAppPrivate);
 
   // Abuse the header's nTimeStamp field to propagate the bitstream buffer ID to
