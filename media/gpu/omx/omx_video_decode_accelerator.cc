@@ -789,8 +789,9 @@ bool OmxVideoDecodeAccelerator::TryToSetupDecodeOnSeparateThread(
 void OmxVideoDecodeAccelerator::BeginTransitionToState(
     OMX_STATETYPE new_state) {
   VLOGF(1) << "new_state = " << new_state;
-  if (new_state != OMX_StateInvalid)
-    DCHECK_NE(current_state_change_, NO_TRANSITION);
+  DCHECK(new_state == OMX_StateInvalid ||
+         current_state_change_ != NO_TRANSITION);
+
   if (current_state_change_ == ERRORING)
     return;
   OMX_ERRORTYPE result = OMX_SendCommand(
