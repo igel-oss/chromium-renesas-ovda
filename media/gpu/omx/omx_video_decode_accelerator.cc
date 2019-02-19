@@ -110,6 +110,7 @@ OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
       input_port_(0),
       input_buffers_at_component_(0),
       first_input_buffer_sent_(false),
+      previous_frame_has_data_(false),
       output_port_(0),
       output_buffers_at_component_(0),
       egl_display_(egl_display),
@@ -423,9 +424,28 @@ void OmxVideoDecodeAccelerator::Decode(
 
   if (bitstream_buffer.id() == -1 && bitstream_buffer.size() == 0) {
     // Cook up an empty buffer w/ EOS set and feed it to OMX.
+    if (input_buffer_offset_) {
+      first_input_buffer_sent_ = true;
+      // Give this buffer to OMX.
+      free_input_buffers_.pop();
+      OMX_ERRORTYPE result = OMX_EmptyThisBuffer(component_handle_, omx_buffer);
+      RETURN_ON_OMX_FAILURE(result, "OMX_EmptyThisBuffer() failed",
+                        PLATFORM_FAILURE,);
+
+      input_buffer_size_ = 0;
+      input_buffer_offset_ = 0;
+      input_buffers_at_component_++;
+      if (free_input_buffers_.empty()) {
+        VLOGF(2) << "No more buffers available, returning bistream buffer to queue";
+        queued_bitstream_buffers_.push_back(bitstream_buffer);
+        return;
+      }
+      omx_buffer = free_input_buffers_.front();
+    }
+
     omx_buffer->nFilledLen = 0;
     omx_buffer->nAllocLen = omx_buffer->nFilledLen;
-    omx_buffer->nFlags |= OMX_BUFFERFLAG_EOS;
+    omx_buffer->nFlags = OMX_BUFFERFLAG_EOS;
     omx_buffer->nTimeStamp = -2;
     free_input_buffers_.pop();
     OMX_ERRORTYPE result = OMX_EmptyThisBuffer(component_handle_, omx_buffer);
@@ -444,10 +464,6 @@ void OmxVideoDecodeAccelerator::Decode(
 
   DCHECK(!omx_buffer->pAppPrivate);
 
-  // Abuse the header's nTimeStamp field to propagate the bitstream buffer ID to
-  // the output buffer's nTimeStamp field, so we can report it back to the
-  // client in PictureReady().
-  omx_buffer->nTimeStamp = bitstream_buffer.id();
 
   OMX_U8 *data = static_cast<OMX_U8*>(shm->memory());
 
@@ -456,7 +472,8 @@ void OmxVideoDecodeAccelerator::Decode(
   if (codec_ == H264) {
     h264_parser_->SetStream(data, size);
 
-    bool has_eof = false;
+    bool has_data = false;
+    bool new_frame = false;
     H264Parser::Result res;
     H264NALU nal;
     while ((res = h264_parser_->AdvanceToNextNALU(&nal)) != H264Parser::kEOStream) {
@@ -467,24 +484,60 @@ void OmxVideoDecodeAccelerator::Decode(
       switch (nal.nal_unit_type) {
          case H264NALU::kNonIDRSlice:
          case H264NALU::kIDRSlice:
+            //check if first-mb-in-slice is 0 (i.e. first NAL in picture)
+            if (nal.size > 1 && nal.data[1] & 0x80) {
+                DCHECK_EQ(has_data, false);
+                new_frame = true;
+            }
+            has_data = true;
+            break;
          case H264NALU::kAUD:
          case H264NALU::kEOSeq:
          case H264NALU::kEOStream:
-              has_eof = true;
+         case H264NALU::kSEIMessage:
+         case H264NALU::kSPS:
+         case H264NALU::kPPS:
+              new_frame = true;
               break;
+         default:
+            LOG(WARNING) << "Got an unrecognized NAL unit: " << nal.nal_unit_type;
       };
 
     }
 
-    //TODO(dhobsong): The above assumes that evry VCL slice will encode and entire frame
-    //and completely fit into a single buffer.  Handle the cases when it doesn't.
-
-    send_frame = has_eof;
+    send_frame = new_frame && previous_frame_has_data_;
+    previous_frame_has_data_ = has_data;
   }
 
-  memcpy(omx_buffer->pBuffer + input_buffer_offset_, data, size);
+  if (send_frame && omx_buffer->nFilledLen) {
+      first_input_buffer_sent_ = true;
+      // Give this buffer to OMX.
+      free_input_buffers_.pop();
+      OMX_ERRORTYPE result = OMX_EmptyThisBuffer(component_handle_, omx_buffer);
+      RETURN_ON_OMX_FAILURE(result, "OMX_EmptyThisBuffer() failed",
+                        PLATFORM_FAILURE,);
 
+      input_buffer_size_ = 0;
+      input_buffer_offset_ = 0;
+      input_buffers_at_component_++;
+
+      if (free_input_buffers_.empty()) {
+        VLOGF(2) << "No more buffers available, returning bistream buffer to queue";
+        shm->TakeHandle(); //So that it isn't closed out from under us.
+        queued_bitstream_buffers_.push_back(bitstream_buffer);
+        return;
+      }
+      omx_buffer = free_input_buffers_.front();
+  }
+
+  // Abuse the header's nTimeStamp field to propagate the bitstream buffer ID to
+  // the output buffer's nTimeStamp field, so we can report it back to the
+  // client in PictureReady().
+  omx_buffer->nTimeStamp = bitstream_buffer.id();
+
+  memcpy(omx_buffer->pBuffer + input_buffer_offset_, data, size);
   input_buffer_offset_ += size;
+
   omx_buffer->nFlags = OMX_BUFFERFLAG_ENDOFFRAME;
   omx_buffer->nFilledLen = input_buffer_offset_;
   omx_buffer->nAllocLen = omx_buffer->nFilledLen;
@@ -492,20 +545,6 @@ void OmxVideoDecodeAccelerator::Decode(
   decode_task_runner_->PostTask(FROM_HERE, base::Bind(
      &Client::NotifyEndOfBitstreamBuffer, decode_client_,
        bitstream_buffer.id()));
-
-  if (send_frame) {
-      first_input_buffer_sent_ = true;
-      VLOGF(1) << "decoding buffer of size: " << omx_buffer->nFilledLen;
-      // Give this buffer to OMX.
-      free_input_buffers_.pop();
-      OMX_ERRORTYPE result = OMX_EmptyThisBuffer(component_handle_, omx_buffer);
-      input_buffer_size_ = 0;
-      input_buffer_offset_ = 0;
-
-      RETURN_ON_OMX_FAILURE(result, "OMX_EmptyThisBuffer() failed",
-                        PLATFORM_FAILURE,);
-      input_buffers_at_component_++;
-  }
 }
 
 void OmxVideoDecodeAccelerator::AssignPictureBuffers(
