@@ -38,11 +38,6 @@ static const base::FilePath::CharType kMMNGRBufLib[] =
 
 namespace media {
 
-// Helper typedef for input buffers.  This is used as the pAppPrivate field of
-// OMX_BUFFERHEADERTYPEs of input buffers, to point to the data associated with
-// them.
-typedef std::pair<std::unique_ptr<base::SharedMemory>, int32_t> SharedMemoryAndId;
-
 enum { kNumPictureBuffers = 8 };
 
 // Delay between polling for texture sync status. 5ms feels like a good
@@ -447,9 +442,6 @@ void OmxVideoDecodeAccelerator::Decode(
   RETURN_ON_FAILURE(shm->Map(bitstream_buffer.size()),
                     "Failed to SharedMemory::Map()", UNREADABLE_INPUT,);
 
-  SharedMemoryAndId* input_buffer_details = new SharedMemoryAndId(
-        std::move(shm), bitstream_buffer.id());
-
   DCHECK(!omx_buffer->pAppPrivate);
 
   // Abuse the header's nTimeStamp field to propagate the bitstream buffer ID to
@@ -457,10 +449,11 @@ void OmxVideoDecodeAccelerator::Decode(
   // client in PictureReady().
   omx_buffer->nTimeStamp = bitstream_buffer.id();
 
-  OMX_U8 *data = static_cast<OMX_U8*>(input_buffer_details->first->memory());
+  OMX_U8 *data = static_cast<OMX_U8*>(shm->memory());
 
+  bool send_frame = false;
+  int size = bitstream_buffer.size();
   if (codec_ == H264) {
-    int size = bitstream_buffer.size();
     h264_parser_->SetStream(data, size);
 
     bool has_eof = false;
@@ -486,31 +479,33 @@ void OmxVideoDecodeAccelerator::Decode(
     //TODO(dhobsong): The above assumes that evry VCL slice will encode and entire frame
     //and completely fit into a single buffer.  Handle the cases when it doesn't.
 
-    memcpy(omx_buffer->pBuffer + input_buffer_offset_, data, size);
-
-    if (!has_eof) {
-      input_buffer_offset_ += size;
-      decode_task_runner_->PostTask(FROM_HERE, base::Bind(
-      &Client::NotifyEndOfBitstreamBuffer, decode_client_,
-        input_buffer_details->second));
-      return;
-    }
-    omx_buffer->nFlags = OMX_BUFFERFLAG_ENDOFFRAME;
-    omx_buffer->nFilledLen = size + input_buffer_offset_;
-    omx_buffer->nAllocLen = omx_buffer->nFilledLen;
-    first_input_buffer_sent_ = true;
+    send_frame = has_eof;
   }
 
-  // Give this buffer to OMX.
-  free_input_buffers_.pop();
-  omx_buffer->pAppPrivate = input_buffer_details;
-  OMX_ERRORTYPE result = OMX_EmptyThisBuffer(component_handle_, omx_buffer);
-  input_buffer_size_ = 0;
-  input_buffer_offset_ = 0;
+  memcpy(omx_buffer->pBuffer + input_buffer_offset_, data, size);
 
-  RETURN_ON_OMX_FAILURE(result, "OMX_EmptyThisBuffer() failed",
+  input_buffer_offset_ += size;
+  omx_buffer->nFlags = OMX_BUFFERFLAG_ENDOFFRAME;
+  omx_buffer->nFilledLen = input_buffer_offset_;
+  omx_buffer->nAllocLen = omx_buffer->nFilledLen;
+
+  decode_task_runner_->PostTask(FROM_HERE, base::Bind(
+     &Client::NotifyEndOfBitstreamBuffer, decode_client_,
+       bitstream_buffer.id()));
+
+  if (send_frame) {
+      first_input_buffer_sent_ = true;
+      VLOGF(1) << "decoding buffer of size: " << omx_buffer->nFilledLen;
+      // Give this buffer to OMX.
+      free_input_buffers_.pop();
+      OMX_ERRORTYPE result = OMX_EmptyThisBuffer(component_handle_, omx_buffer);
+      input_buffer_size_ = 0;
+      input_buffer_offset_ = 0;
+
+      RETURN_ON_OMX_FAILURE(result, "OMX_EmptyThisBuffer() failed",
                         PLATFORM_FAILURE,);
-  input_buffers_at_component_++;
+      input_buffers_at_component_++;
+  }
 }
 
 void OmxVideoDecodeAccelerator::AssignPictureBuffers(
@@ -1195,16 +1190,6 @@ void OmxVideoDecodeAccelerator::EmptyBufferDoneTask(
   input_buffers_at_component_--;
   if (buffer->nFlags & OMX_BUFFERFLAG_EOS)
     return;
-
-  // Retrieve the corresponding BitstreamBuffer's id and notify the client of
-  // its completion.
-  SharedMemoryAndId* input_buffer_details =
-      reinterpret_cast<SharedMemoryAndId*>(buffer->pAppPrivate);
-  DCHECK(input_buffer_details);
-  buffer->pAppPrivate = NULL;
-  if (decode_client_)
-    decode_client_->NotifyEndOfBitstreamBuffer(input_buffer_details->second);
-  delete input_buffer_details;
 
   DecodeQueuedBitstreamBuffers();
 }
