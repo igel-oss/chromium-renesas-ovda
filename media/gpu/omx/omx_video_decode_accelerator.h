@@ -201,6 +201,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   std::unique_ptr<H264Parser> h264_parser_;
   int input_buffer_offset_;
   bool first_input_buffer_sent_;
+  bool previous_frame_has_data_;
 
   // Following are output port related variables.
   OMX_U32 output_port_;
