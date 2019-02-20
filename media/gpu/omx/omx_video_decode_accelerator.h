@@ -77,6 +77,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
     INITIALIZING,
     FLUSHING,
     RESETTING,
+    RESIZING,
     DESTROYING,
     ERRORING,  // Trumps all other transitions; no recovery is possible.
   };
@@ -141,6 +142,8 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   bool AllocateInputBuffers();
   bool AllocateFakeOutputBuffers();
   bool AllocateOutputBuffers(int size);
+  void FreeOutputBufferMemory(struct MmngrBuffer &buf);
+  bool FreeOutputPicture(OutputPicture &picture);
   void FreeOMXBuffers();
 
   // Methods to handle OMX state transitions.  See section 3.1.1.2 of the spec.
@@ -181,6 +184,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   // the port once we have textures, and that's the second method below.
   void OnOutputPortDisabled();
   void OnOutputPortEnabled();
+  void OnPortSettingsChanged();
 
   // Do the Decode() heavy lifting.
   void DecodeBuffer(std::unique_ptr<struct BitstreamBufferRef> input_buffer);
