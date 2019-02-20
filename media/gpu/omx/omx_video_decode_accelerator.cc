@@ -443,6 +443,7 @@ void OmxVideoDecodeAccelerator::DecodeBuffer(std::unique_ptr<struct BitstreamBuf
   }
 
   RETURN_ON_FAILURE((current_state_change_ == NO_TRANSITION ||
+                     current_state_change_ == RESIZING ||
                      current_state_change_ == FLUSHING) &&
                     (client_state_ == OMX_StateIdle ||
                      client_state_ == OMX_StateExecuting),
@@ -678,6 +679,8 @@ void OmxVideoDecodeAccelerator::AssignPictureBuffers(
     return;
   if (!AllocateOutputBuffers(port_format.nBufferSize))
     return;
+  VLOGF(1) << "Resize complete";
+  current_state_change_ = NO_TRANSITION;
 }
 
 void OmxVideoDecodeAccelerator::ReusePictureBuffer(int32_t picture_buffer_id) {
@@ -741,6 +744,12 @@ void OmxVideoDecodeAccelerator::QueuePictureBuffer(int32_t picture_buffer_id) {
                     "Missing picture buffer id: " << picture_buffer_id,
                     INVALID_ARGUMENT,);
   OutputPicture& output_picture = it->second;
+
+  if (current_state_change_ == RESIZING) {
+    VLOGF(1) << "Freeing a buffer on resize: " << picture_buffer_id;
+    FreeOutputBufferMemory(output_picture.mmngr_buf);
+    return;
+  }
 
   ++output_buffers_at_component_;
   TRACE_EVENT2("Video Decoder", "OVDA::QueuePictureBuffer",
@@ -1062,6 +1071,28 @@ bool OmxVideoDecodeAccelerator::AllocateOutputBuffers(int size) {
   return true;
 }
 
+void OmxVideoDecodeAccelerator::FreeOutputBufferMemory(struct MmngrBuffer &buf) {
+    mmngr_export_end_in_user_ext(buf.dmabuf_id);
+    mmngr_free_in_user_ext(buf.mem_id);
+}
+
+bool OmxVideoDecodeAccelerator::FreeOutputPicture(OutputPicture &picture) {
+    OMX_BUFFERHEADERTYPE* omx_buffer = picture.omx_buffer_header;
+    DCHECK(omx_buffer);
+    OMX_ERRORTYPE result =
+        OMX_FreeBuffer(component_handle_, output_port_, omx_buffer);
+    if (result != OMX_ErrorNone) {
+      DLOG(ERROR) << "OMX_FreeBuffer failed: 0x" << std::hex << result;
+    }
+
+    eglDestroyImageKHR(egl_display_, picture.egl_image);
+
+    if (client_)
+      client_->DismissPictureBuffer(picture.picture_buffer.id());
+
+    return result == OMX_ErrorNone;
+}
+
 void OmxVideoDecodeAccelerator::FreeOMXBuffers() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   bool failure_seen = false;
@@ -1077,21 +1108,9 @@ void OmxVideoDecodeAccelerator::FreeOMXBuffers() {
   }
   for (OutputPictureById::iterator it = pictures_.begin();
        it != pictures_.end(); ++it) {
-    OMX_BUFFERHEADERTYPE* omx_buffer = it->second.omx_buffer_header;
-    DCHECK(omx_buffer);
-    OMX_ERRORTYPE result =
-        OMX_FreeBuffer(component_handle_, output_port_, omx_buffer);
-    if (result != OMX_ErrorNone) {
-      DLOG(ERROR) << "OMX_FreeBuffer failed: 0x" << std::hex << result;
-      failure_seen = true;
-    }
-
-    eglDestroyImageKHR(egl_display_, it->second.egl_image);
-
-    if (client_)
-      client_->DismissPictureBuffer(it->first);
-    mmngr_export_end_in_user_ext(it->second.mmngr_buf.dmabuf_id);
-    mmngr_free_in_user_ext(it->second.mmngr_buf.mem_id);
+    if (!FreeOutputPicture(it->second))
+        failure_seen = true;
+    FreeOutputBufferMemory(it->second.mmngr_buf);
   }
   pictures_.clear();
 
@@ -1117,6 +1136,21 @@ void OmxVideoDecodeAccelerator::FreeOMXBuffers() {
   queued_picture_buffer_ids_.clear();
 
   RETURN_ON_FAILURE(!failure_seen, "OMX_FreeBuffer", PLATFORM_FAILURE,);
+}
+
+void OmxVideoDecodeAccelerator::OnPortSettingsChanged() {
+  VLOGF(1) << "Port settings changed received";
+  SendCommandToPort(OMX_CommandPortDisable, output_port_);
+  current_state_change_ = RESIZING;
+
+  if (output_buffers_at_component_ > 0)
+      return;
+
+  for (OutputPictureById::iterator it = pictures_.begin();
+      it != pictures_.end(); ++it) {
+    FreeOutputPicture(it->second);
+  }
+  pictures_.clear();
 }
 
 void OmxVideoDecodeAccelerator::OnOutputPortDisabled() {
@@ -1219,6 +1253,20 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
     return;
   }
   DCHECK(!fake_output_buffers_.size());
+
+  if (current_state_change_ == RESIZING) {
+    VLOGF(1) << "Freeing buffer during resize. remaining at component: " << output_buffers_at_component_;
+    FreeOutputBufferMemory(output_picture->mmngr_buf);
+    if (output_buffers_at_component_ > 0)
+      return;
+
+    for (OutputPictureById::iterator it = pictures_.begin();
+        it != pictures_.end(); ++it) {
+      FreeOutputPicture(it->second);
+    }
+    pictures_.clear();
+    return;
+  }
 
   // When the EOS picture is delivered back to us, notify the client and reuse
   // the underlying picturebuffer.
@@ -1387,7 +1435,7 @@ void OmxVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
           data2 == OMX_IndexParamPortDefinition) {
         // This event is only used for output resize; kick off handling that by
         // pausing the output port.
-        SendCommandToPort(OMX_CommandPortDisable, output_port_);
+        OnPortSettingsChanged();
       } else if (data1 == output_port_ &&
                  data2 == OMX_IndexConfigCommonOutputCrop) {
         // TODO(vjain): Handle video crop rect.
