@@ -1541,6 +1541,15 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::EventHandler(OMX_HANDLETYPE component,
       return OMX_ErrorNone;
   }
 
+  if (event == OMX_EventPortSettingsChanged) {
+    if (decoder->current_state_change_ == RESIZING) {
+        VLOGF(1) << "Dropping resize during resize";
+        return OMX_ErrorNone;
+    }
+    VLOGF(1) << "Changing state to resize";
+    decoder->current_state_change_ = RESIZING;
+  }
+
   decoder->child_task_runner_->PostTask(FROM_HERE, base::Bind(
       &OmxVideoDecodeAccelerator::EventHandlerCompleteTask,
       decoder->weak_this(), event, data1, data2));
