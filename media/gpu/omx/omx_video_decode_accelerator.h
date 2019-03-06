@@ -101,15 +101,23 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   // Helper struct for keeping track of all output buffer metadata
   // buffer and the PictureBuffer it points to.
   struct OutputPicture {
-    OutputPicture(media::PictureBuffer p_b, OMX_BUFFERHEADERTYPE* o_b_h,
-                  EGLImageKHR e_i, struct MmngrBuffer m_buf)
-        : picture_buffer(p_b), omx_buffer_header(o_b_h),
-          egl_image(e_i), mmngr_buf(m_buf)
-    {}
+    OutputPicture(
+          const OmxVideoDecodeAccelerator &dec,
+          media::PictureBuffer pbuffer,
+          OMX_BUFFERHEADERTYPE* obuffer,
+          EGLImageKHR eimage,
+          struct MmngrBuffer mbuf);
+    virtual ~OutputPicture();
+
+    OMX_ERRORTYPE FreeOMXHandle();
+
+    const OmxVideoDecodeAccelerator &decoder;
     media::PictureBuffer picture_buffer;
     OMX_BUFFERHEADERTYPE* omx_buffer_header;
     EGLImageKHR egl_image;
     struct MmngrBuffer mmngr_buf;
+    bool at_component;
+    bool allocated;
   };
 
   struct BitstreamBufferRef {
@@ -127,7 +135,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
     void *memory;
   };
 
-  typedef std::map<int32_t, OutputPicture> OutputPictureById;
+  typedef std::map<int32_t, std::unique_ptr<OutputPicture>> OutputPictureById;
 
   scoped_refptr<base::SingleThreadTaskRunner> child_task_runner_;
 
@@ -142,8 +150,6 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   bool AllocateInputBuffers();
   bool AllocateFakeOutputBuffers();
   bool AllocateOutputBuffers(int size);
-  void FreeOutputBufferMemory(struct MmngrBuffer &buf);
-  bool FreeOutputPicture(OutputPicture &picture);
   void FreeOMXBuffers();
 
   // Methods to handle OMX state transitions.  See section 3.1.1.2 of the spec.
