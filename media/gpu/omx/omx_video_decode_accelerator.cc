@@ -661,6 +661,9 @@ void OmxVideoDecodeAccelerator::CheckPictureStatus(
 void OmxVideoDecodeAccelerator::QueuePictureBuffer(int32_t picture_buffer_id) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
+  if (picture_buffer_id < 0)
+     return;
+
   // During port-flushing, do not call OMX FillThisBuffer.
   if (current_state_change_ == RESETTING) {
     queued_picture_buffer_ids_.push_back(picture_buffer_id);
@@ -862,7 +865,7 @@ void OmxVideoDecodeAccelerator::OnReachedExecutingInResetting() {
   // Drain queues of input & output buffers held during the reset.
   DecodeQueuedBitstreamBuffers();
   for (size_t i = 0; i < queued_picture_buffer_ids_.size(); ++i)
-    ReusePictureBuffer(queued_picture_buffer_ids_[i]);
+    QueuePictureBuffer(queued_picture_buffer_ids_[i]);
   queued_picture_buffer_ids_.clear();
 
   client_->NotifyResetDone();
@@ -1157,7 +1160,7 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
   if (buffer->nFlags & OMX_BUFFERFLAG_EOS) {
     buffer->nFlags &= ~OMX_BUFFERFLAG_EOS;
     OnReachedEOSInFlushing();
-    ReusePictureBuffer(picture_buffer_id);
+    QueuePictureBuffer(picture_buffer_id);
     return;
   }
 
