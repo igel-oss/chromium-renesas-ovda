@@ -1146,6 +1146,13 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
       current_state_change_ == ERRORING)
     return;
 
+  // During the transition from Executing to Idle, and during port-flushing, all
+  // pictures are sent back through here.  Avoid giving them to the client.
+  if (current_state_change_ == RESETTING) {
+    queued_picture_buffer_ids_.push_back(picture_buffer_id);
+    return;
+  }
+
   if (fake_output_buffers_.size() && fake_output_buffers_.count(buffer)) {
     size_t erased = fake_output_buffers_.erase(buffer);
     DCHECK_EQ(erased, 1U);
@@ -1165,12 +1172,6 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
     return;
   }
 
-  // During the transition from Executing to Idle, and during port-flushing, all
-  // pictures are sent back through here.  Avoid giving them to the client.
-  if (current_state_change_ == RESETTING) {
-    queued_picture_buffer_ids_.push_back(picture_buffer_id);
-    return;
-  }
 
   //TODO(dhobsong): Set up colorspace (BT.601 vs BT.709)*/
   media::Picture picture(picture_buffer_id, buffer->nTimeStamp,
