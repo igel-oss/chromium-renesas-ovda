@@ -523,6 +523,7 @@ void OmxVideoDecodeAccelerator::DecodeBuffer(std::unique_ptr<struct BitstreamBuf
     // Cook up an empty buffer w/ EOS set and feed it to OMX.
     if (input_buffer_offset_) {
       first_input_buffer_sent_ = true;
+      VLOGF(2) << "decoding buffer :" << (int) omx_buffer->nTimeStamp;
       // Give this buffer to OMX.
       free_input_buffers_.pop();
       OMX_ERRORTYPE result = OMX_EmptyThisBuffer(component_handle_, omx_buffer);
@@ -604,6 +605,7 @@ void OmxVideoDecodeAccelerator::DecodeBuffer(std::unique_ptr<struct BitstreamBuf
 
   if (send_frame && omx_buffer->nFilledLen) {
       first_input_buffer_sent_ = true;
+      VLOGF(2) << "decoding buffer :" << (int) omx_buffer->nTimeStamp;
       // Give this buffer to OMX.
       free_input_buffers_.pop();
       OMX_ERRORTYPE result = OMX_EmptyThisBuffer(component_handle_, omx_buffer);
@@ -672,6 +674,10 @@ void OmxVideoDecodeAccelerator::AssignPictureBuffers(
   result = OMX_GetParameter(component_handle_,
                             OMX_IndexParamPortDefinition,
                             &port_format);
+
+  RETURN_ON_OMX_FAILURE(result,
+                        "GetParameter(OMX_IndexParamPortDefinition) failed",
+                        PLATFORM_FAILURE,);
 
   port_format.nBufferCountActual = buffers.size();
 
@@ -834,6 +840,7 @@ void OmxVideoDecodeAccelerator::Flush() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   DCHECK_EQ(current_state_change_, NO_TRANSITION);
   DCHECK_EQ(client_state_, OMX_StateExecuting);
+  VLOGF(1);
   current_state_change_ = FLUSHING;
 
   Decode(media::BitstreamBuffer(-1, base::SharedMemoryHandle(), 0));
@@ -842,7 +849,7 @@ void OmxVideoDecodeAccelerator::Flush() {
 void OmxVideoDecodeAccelerator::OnReachedEOSInFlushing() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   DCHECK_EQ(client_state_, OMX_StateExecuting);
-
+  VLOGF(1);
   current_state_change_ = NO_TRANSITION;
   if (client_)
     client_->NotifyFlushDone();
@@ -874,6 +881,7 @@ void OmxVideoDecodeAccelerator::Reset() {
   DCHECK(current_state_change_ == NO_TRANSITION ||
         current_state_change_ == FLUSHING);
   DCHECK_EQ(client_state_, OMX_StateExecuting);
+  VLOGF(1);
   if (first_input_buffer_sent_) {
     current_state_change_ = RESETTING;
     queued_bitstream_buffers_.clear();
@@ -1431,7 +1439,7 @@ void OmxVideoDecodeAccelerator::HandleSyncronousInit(OMX_EVENTTYPE event,
 void OmxVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
                                                          OMX_U32 data1,
                                                          OMX_U32 data2) {
-  VLOGF(1) << "event = " << event;
+  VLOGF(1) << "event:" << event << " data:" << data1 << ":" << data2;
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   switch (event) {
     case OMX_EventCmdComplete:
