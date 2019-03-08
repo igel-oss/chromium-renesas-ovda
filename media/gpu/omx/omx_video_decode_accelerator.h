@@ -111,6 +111,21 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
     struct MmngrBuffer mmngr_buf;
   };
 
+  struct BitstreamBufferRef {
+    BitstreamBufferRef(
+      const media::BitstreamBuffer &buf,
+      scoped_refptr<base::SingleThreadTaskRunner> tr,
+      base::WeakPtr<Client> cl);
+    virtual ~BitstreamBufferRef();
+
+    std::unique_ptr<base::SharedMemory> shm;
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner;
+    base::WeakPtr<Client> client;
+    int32_t id;
+    size_t size;
+    void *memory;
+  };
+
   typedef std::map<int32_t, OutputPicture> OutputPictureById;
 
   scoped_refptr<base::SingleThreadTaskRunner> child_task_runner_;
@@ -167,6 +182,8 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   void OnOutputPortDisabled();
   void OnOutputPortEnabled();
 
+  // Do the Decode() heavy lifting.
+  void DecodeBuffer(std::unique_ptr<struct BitstreamBufferRef> input_buffer);
   // Decode bitstream buffers that were queued (see queued_bitstream_buffers_).
   void DecodeQueuedBitstreamBuffers();
 
@@ -231,7 +248,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
 
   // Encoded bitstream buffers awaiting decode, queued while the decoder was
   // unable to accept them.
-  typedef std::vector<media::BitstreamBuffer> BitstreamBufferList;
+  typedef std::vector<std::unique_ptr<BitstreamBufferRef>> BitstreamBufferList;
   BitstreamBufferList queued_bitstream_buffers_;
   // Available output picture buffers released during Reset() and awaiting
   // re-use once Reset is done.  Is empty most of the time and drained right

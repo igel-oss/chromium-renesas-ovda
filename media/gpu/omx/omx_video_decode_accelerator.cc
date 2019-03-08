@@ -45,6 +45,27 @@ enum { kNumPictureBuffers = 8 };
 // for more difficult frames.
 enum { kSyncPollDelayMs = 5 };
 
+OmxVideoDecodeAccelerator::BitstreamBufferRef::BitstreamBufferRef(
+    const media::BitstreamBuffer &buf,
+    scoped_refptr<base::SingleThreadTaskRunner> tr,
+    base::WeakPtr<Client> cl)
+    : task_runner(tr),
+      client(cl) {
+  id = buf.id();
+  size = buf.size();
+  shm = std::make_unique<base::SharedMemory> (buf.handle(), true);
+  shm->Map(size);
+  memory = shm->memory();
+}
+
+OmxVideoDecodeAccelerator::BitstreamBufferRef::~BitstreamBufferRef() {
+    if (id < 0)
+        return;
+    task_runner->PostTask(FROM_HERE, base::Bind(
+     &Client::NotifyEndOfBitstreamBuffer, client, id));
+}
+
+
 // Maps h264-related Profile enum values to OMX_VIDEO_AVCPROFILETYPE values.
 static OMX_U32 MapH264ProfileToOMXAVCProfile(uint32_t profile) {
   switch (profile) {
@@ -402,13 +423,22 @@ void OmxVideoDecodeAccelerator::Decode(
                "Buffer id", bitstream_buffer.id(),
                "Component input buffers", input_buffers_at_component_ + 1);
   DCHECK(child_task_runner_->BelongsToCurrentThread());
+
   VLOGF(2) << "buffer id:" << bitstream_buffer.id();
 
+  auto buffer = std::make_unique<BitstreamBufferRef>(bitstream_buffer, decode_task_runner_, decode_client_);
+  RETURN_ON_FAILURE(buffer->memory != NULL || buffer->id < 0,
+                    "Failed to map bistream buffer memory", UNREADABLE_INPUT,);
+
+  DecodeBuffer(std::move(buffer));
+}
+
+void OmxVideoDecodeAccelerator::DecodeBuffer(std::unique_ptr<struct BitstreamBufferRef> input_buffer) {
   if (current_state_change_ == RESETTING ||
       current_state_change_ == INITIALIZING ||
       !queued_bitstream_buffers_.empty() ||
       free_input_buffers_.empty()) {
-    queued_bitstream_buffers_.push_back(bitstream_buffer);
+    queued_bitstream_buffers_.push_back(std::move(input_buffer));
     return;
   }
 
@@ -422,7 +452,7 @@ void OmxVideoDecodeAccelerator::Decode(
 
   OMX_BUFFERHEADERTYPE* omx_buffer = free_input_buffers_.front();
 
-  if (bitstream_buffer.id() == -1 && bitstream_buffer.size() == 0) {
+  if (input_buffer->id == -1) {
     // Cook up an empty buffer w/ EOS set and feed it to OMX.
     if (input_buffer_offset_) {
       first_input_buffer_sent_ = true;
@@ -437,7 +467,7 @@ void OmxVideoDecodeAccelerator::Decode(
       input_buffers_at_component_++;
       if (free_input_buffers_.empty()) {
         VLOGF(2) << "No more buffers available, returning bistream buffer to queue";
-        queued_bitstream_buffers_.push_back(bitstream_buffer);
+        queued_bitstream_buffers_.push_back(std::move(input_buffer));
         return;
       }
       omx_buffer = free_input_buffers_.front();
@@ -457,18 +487,14 @@ void OmxVideoDecodeAccelerator::Decode(
   }
 
   // Setup |omx_buffer|.
-  std::unique_ptr<base::SharedMemory> shm(
-      new base::SharedMemory(bitstream_buffer.handle(), true));
-  RETURN_ON_FAILURE(shm->Map(bitstream_buffer.size()),
-                    "Failed to SharedMemory::Map()", UNREADABLE_INPUT,);
 
   DCHECK(!omx_buffer->pAppPrivate);
 
 
-  OMX_U8 *data = static_cast<OMX_U8*>(shm->memory());
+  OMX_U8 *data = static_cast<OMX_U8*>(input_buffer->memory);
 
   bool send_frame = false;
-  int size = bitstream_buffer.size();
+  int size = input_buffer->size;
   if (codec_ == H264) {
     h264_parser_->SetStream(data, size);
 
@@ -523,8 +549,7 @@ void OmxVideoDecodeAccelerator::Decode(
 
       if (free_input_buffers_.empty()) {
         VLOGF(2) << "No more buffers available, returning bistream buffer to queue";
-        shm->TakeHandle(); //So that it isn't closed out from under us.
-        queued_bitstream_buffers_.push_back(bitstream_buffer);
+        queued_bitstream_buffers_.push_back(std::move(input_buffer));
         return;
       }
       omx_buffer = free_input_buffers_.front();
@@ -533,7 +558,7 @@ void OmxVideoDecodeAccelerator::Decode(
   // Abuse the header's nTimeStamp field to propagate the bitstream buffer ID to
   // the output buffer's nTimeStamp field, so we can report it back to the
   // client in PictureReady().
-  omx_buffer->nTimeStamp = bitstream_buffer.id();
+  omx_buffer->nTimeStamp = input_buffer->id;
 
   memcpy(omx_buffer->pBuffer + input_buffer_offset_, data, size);
   input_buffer_offset_ += size;
@@ -542,9 +567,7 @@ void OmxVideoDecodeAccelerator::Decode(
   omx_buffer->nFilledLen = input_buffer_offset_;
   omx_buffer->nAllocLen = omx_buffer->nFilledLen;
 
-  decode_task_runner_->PostTask(FROM_HERE, base::Bind(
-     &Client::NotifyEndOfBitstreamBuffer, decode_client_,
-       bitstream_buffer.id()));
+  //processed |input_buffer|s go out of scope here and return to client.
 }
 
 void OmxVideoDecodeAccelerator::AssignPictureBuffers(
@@ -887,7 +910,7 @@ void OmxVideoDecodeAccelerator::DecodeQueuedBitstreamBuffers() {
     return;
   }
   for (size_t i = 0; i < buffers.size(); ++i)
-    Decode(buffers[i]);
+    DecodeBuffer(std::move(buffers[i]));
 }
 
 void OmxVideoDecodeAccelerator::OnReachedExecutingInResetting() {
