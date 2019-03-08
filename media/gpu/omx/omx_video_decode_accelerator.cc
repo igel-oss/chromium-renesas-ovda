@@ -799,7 +799,8 @@ void OmxVideoDecodeAccelerator::BeginTransitionToState(
     return;
   OMX_ERRORTYPE result = OMX_SendCommand(
       component_handle_, OMX_CommandStateSet, new_state, 0);
-  RETURN_ON_OMX_FAILURE(result, "SendCommand(OMX_CommandStateSet) failed",
+  RETURN_ON_FAILURE(result == OMX_ErrorNone || new_state == OMX_StateInvalid,
+                        "SendCommand(OMX_CommandStateSet) failed",
                         PLATFORM_FAILURE,);
 }
 
