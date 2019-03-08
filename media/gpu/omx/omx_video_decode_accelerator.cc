@@ -820,10 +820,7 @@ bool OmxVideoDecodeAccelerator::TryToSetupDecodeOnSeparateThread(
     const base::WeakPtr<Client>& decode_client,
     const scoped_refptr<base::SingleThreadTaskRunner>& decode_task_runner) {
 
-    decode_client_ = decode_client;
-    decode_task_runner_ = decode_task_runner;
-
-    return true;
+    return false;
 }
 
 void OmxVideoDecodeAccelerator::BeginTransitionToState(
