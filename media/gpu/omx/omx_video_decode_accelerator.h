@@ -237,6 +237,10 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
 
   gfx::Size picture_buffer_dimensions_;
 
+  /* Helpers to handle restrictions on Reset() timing*/
+  bool reset_pending_;
+  void FinishReset();
+
   // NOTE: someday there may be multiple contexts for a single decoder.  But not
   // today.
   // TODO(fischman,vrk): handle lost contexts?
