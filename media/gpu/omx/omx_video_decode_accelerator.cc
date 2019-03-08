@@ -164,6 +164,7 @@ OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
       input_buffer_size_(0),
       input_port_(0),
       input_buffers_at_component_(0),
+      reset_pending_(false),
       first_input_buffer_sent_(false),
       previous_frame_has_data_(false),
       output_port_(0),
@@ -879,20 +880,35 @@ void OmxVideoDecodeAccelerator::OutputPortFlushDone() {
 void OmxVideoDecodeAccelerator::Reset() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   DCHECK(current_state_change_ == NO_TRANSITION ||
-        current_state_change_ == FLUSHING);
+        current_state_change_ == FLUSHING ||
+        current_state_change_ == RESIZING);
   DCHECK_EQ(client_state_, OMX_StateExecuting);
   VLOGF(1);
-  if (first_input_buffer_sent_) {
-    current_state_change_ = RESETTING;
-    queued_bitstream_buffers_.clear();
-    BeginTransitionToState(OMX_StatePause);
-  } else {
-     input_buffer_offset_ = 0;
-     first_input_buffer_sent_ = false;
 
-     child_task_runner_->PostTask(FROM_HERE, base::Bind(
-        &Client::NotifyResetDone, client_));
+  if (!first_input_buffer_sent_ ) {
+    input_buffer_offset_ = 0;
+    first_input_buffer_sent_ = false;
+
+    child_task_runner_->PostTask(FROM_HERE, base::Bind(
+       &Client::NotifyResetDone, client_));
+    return;
   }
+
+  /* Wait for resize to finish before doing Reset */
+  if (current_state_change_ == RESIZING ||
+    picture_buffer_dimensions_ == gfx::Size()) {
+    VLOGF(1) << "Postponing reset during resize";
+    reset_pending_ = true;
+    return;
+  }
+  FinishReset();
+}
+
+void OmxVideoDecodeAccelerator::FinishReset() {
+  current_state_change_ = RESETTING;
+  reset_pending_ = false;
+  queued_bitstream_buffers_.clear();
+  BeginTransitionToState(OMX_StatePause);
 }
 
 void OmxVideoDecodeAccelerator::Destroy() {
@@ -1002,8 +1018,14 @@ void OmxVideoDecodeAccelerator::DecodeQueuedBitstreamBuffers() {
 
 void OmxVideoDecodeAccelerator::OnReachedExecutingInResetting() {
   DCHECK_EQ(client_state_, OMX_StatePause);
+  VLOGF(1);
   client_state_ = OMX_StateExecuting;
   current_state_change_ = NO_TRANSITION;
+
+  input_buffer_offset_ = 0;
+  previous_frame_has_data_ = false;
+  first_input_buffer_sent_ = false;
+
   if (!client_)
     return;
 
@@ -1193,8 +1215,8 @@ void OmxVideoDecodeAccelerator::FreeOMXBuffers() {
 
 void OmxVideoDecodeAccelerator::OnPortSettingsChanged() {
   VLOGF(1) << "Port settings changed received";
-  SendCommandToPort(OMX_CommandPortDisable, output_port_);
   current_state_change_ = RESIZING;
+  SendCommandToPort(OMX_CommandPortDisable, output_port_);
 
   for (OutputPictureById::iterator it = pictures_.begin();
            it != pictures_.end(); ++it) {
@@ -1317,6 +1339,9 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
     pictures_.erase(output_picture->picture_buffer.id());
     return;
   }
+
+  if (reset_pending_)
+    FinishReset();
 
   // When the EOS picture is delivered back to us, notify the client and reuse
   // the underlying picturebuffer.
