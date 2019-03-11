@@ -179,7 +179,7 @@ OmxVideoDecodeAccelerator::GetSupportedProfiles() {
     VideoDecodeAccelerator::SupportedProfiles profiles;
 
     for (const auto& profile : kSupportedProfiles) {
-        const auto kMinSize = gfx::Size(16,16); //TODO; check this
+        const auto kMinSize = gfx::Size(130,98);
         const auto kMaxSize = gfx::Size(1920,1080);
         VideoDecodeAccelerator::SupportedProfile supp_profile;
         supp_profile.profile = profile;
@@ -344,16 +344,20 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
   RETURN_ON_FAILURE(OMX_DirOutput == port_format.eDir, "Expect Output Port",
                     PLATFORM_FAILURE, false);
 
-  output_buffer_size_ = port_format.nBufferSize;
   // Set output port parameters.
   port_format.nBufferCountActual = kNumPictureBuffers;
   
   // Force an OMX_EventPortSettingsChanged event to be sent once we know the
   // stream's real dimensions (which can only happen once some Decode() work has
   // been done).
-  // TODO: Agreed, but is this how R-Car does it?
-  port_format.format.video.nFrameWidth = -1;
-  port_format.format.video.nFrameHeight = -1;
+  port_format.format.video.nFrameWidth = 128;
+  port_format.format.video.nFrameHeight = 96;
+  port_format.format.video.nStride = 128;
+  port_format.format.video.nSliceHeight = 96;
+
+  port_format.nBufferSize = port_format.format.video.nStride *
+        port_format.format.video.nSliceHeight * 3 / 2;
+  output_buffer_size_ = port_format.nBufferSize;
   result = OMX_SetParameter(component_handle_,
                             OMX_IndexParamPortDefinition,
                             &port_format);
