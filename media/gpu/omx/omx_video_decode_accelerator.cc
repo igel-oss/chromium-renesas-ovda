@@ -494,7 +494,7 @@ void OmxVideoDecodeAccelerator::AssignPictureBuffers(
     return;
 
   RETURN_ON_FAILURE(CanFillBuffer(), "Can't fill buffer", ILLEGAL_STATE,);
-  RETURN_ON_FAILURE((kNumPictureBuffers == buffers.size()),
+  RETURN_ON_FAILURE((kNumPictureBuffers <= buffers.size()),
       "Failed to provide requested picture buffers. (Got " << buffers.size() <<
       ", requested " << kNumPictureBuffers << ")", INVALID_ARGUMENT,);
 
@@ -504,6 +504,25 @@ void OmxVideoDecodeAccelerator::AssignPictureBuffers(
 
   if (!make_context_current_.Run())
     return;
+
+  OMX_ERRORTYPE result;
+  OMX_PARAM_PORTDEFINITIONTYPE port_format;
+
+  InitParam(&port_format);
+  port_format.nPortIndex = output_port_;
+
+  result = OMX_GetParameter(component_handle_,
+                            OMX_IndexParamPortDefinition,
+                            &port_format);
+
+  port_format.nBufferCountActual = buffers.size();
+
+  result = OMX_SetParameter(component_handle_,
+                            OMX_IndexParamPortDefinition,
+                            &port_format);
+  RETURN_ON_OMX_FAILURE(result,
+                        "SetParameter(OMX_IndexParamPortDefinition) failed",
+                        PLATFORM_FAILURE,);
 
   for (size_t i = 0; i < buffers.size(); ++i) {
     /*TODO: Allocate a new buffer from MMNGR, and create an EGLImage
