@@ -448,6 +448,38 @@ bool OmxVideoDecodeAccelerator::DecoderSpecificInitialization() {
   RETURN_ON_OMX_FAILURE(result,
                         "SetParameter(OMXR_MC_IndexParamVideoTimeStampMode) failed",
                         PLATFORM_FAILURE, false);
+
+  // Enable dynamic video resizing up to FHD resolution
+
+  OMXR_MC_VIDEO_PARAM_DYNAMIC_PORT_RECONF_IN_DECODINGTYPE param_dynamic;
+  InitParam(&param_dynamic);
+
+  param_dynamic.nPortIndex = output_port_;
+  param_dynamic.bEnable = OMX_TRUE;
+
+  result = OMX_SetParameter(component_handle_,
+                            static_cast<OMX_INDEXTYPE> (OMXR_MC_IndexParamVideoDynamicPortReconfInDecoding),
+                            &param_dynamic);
+
+  RETURN_ON_OMX_FAILURE(result,
+                        "SetParameter(OMXR_MC_IndexParamVideoDynamicPortReconfInDecoding) failed",
+                        PLATFORM_FAILURE, false);
+
+  OMXR_MC_VIDEO_PARAM_MAXIMUM_DECODE_CAPABILITYTYPE param_maxdecode;
+  InitParam(&param_maxdecode);
+
+  param_maxdecode.nPortIndex = output_port_;
+  param_maxdecode.nMaxDecodedWidth = 1920;
+  param_maxdecode.nMaxDecodedHeight = 1088;
+  param_maxdecode.eMaxLevel = OMX_VIDEO_AVCLevel5;
+  param_maxdecode.bForceEnable = OMX_TRUE;
+
+  result = OMX_SetParameter(component_handle_,
+                            static_cast<OMX_INDEXTYPE> (OMXR_MC_IndexParamVideoMaximumDecodeCapability),
+                            &param_maxdecode);
+  RETURN_ON_OMX_FAILURE(result,
+                        "SetParameter(OMXR_MC_IndexParamVideoMaximumDecodeCapability) failed",
+                        PLATFORM_FAILURE, false);
   return true;
 }
 
