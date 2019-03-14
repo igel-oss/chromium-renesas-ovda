@@ -628,6 +628,10 @@ void OmxVideoDecodeAccelerator::ReusePictureBuffer(int32_t picture_buffer_id) {
   TRACE_EVENT1("Video Decoder", "OVDA::ReusePictureBuffer",
                "Picture id", picture_buffer_id);
 
+  RETURN_ON_FAILURE(make_context_current_.Run(),
+                    "Failed to make context current",
+                    PLATFORM_FAILURE,);
+
   auto picture_sync_fence = gl::GLFence::Create();
 
   // Start checking sync status periodically.
