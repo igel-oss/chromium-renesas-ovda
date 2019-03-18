@@ -120,8 +120,7 @@ OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
       egl_display_(egl_display),
       make_context_current_(make_context_current),
       codec_(UNKNOWN),
-      h264_profile_(OMX_VIDEO_AVCProfileMax),
-      component_name_is_nvidia_(false) {
+      h264_profile_(OMX_VIDEO_AVCProfileMax) {
   weak_this_ = weak_this_factory_.GetWeakPtr();
   static bool omx_functions_initialized = PostSandboxInitialization();
   RETURN_ON_FAILURE(omx_functions_initialized,
