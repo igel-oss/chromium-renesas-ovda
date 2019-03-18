@@ -844,6 +844,12 @@ void OmxVideoDecodeAccelerator::Flush() {
   VLOGF(1);
   current_state_change_ = FLUSHING;
 
+  if (!first_input_buffer_sent_ ) {
+    VLOGF(1) << "Nothing to flush, scheduling FlushDone";
+    child_task_runner_->PostTask(FROM_HERE, base::Bind(
+       &Client::NotifyFlushDone, client_));
+    return;
+  }
   Decode(media::BitstreamBuffer(-1, base::SharedMemoryHandle(), 0));
 }
 
