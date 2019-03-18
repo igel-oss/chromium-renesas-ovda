@@ -254,7 +254,6 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   // These members are only used during Initialization.
   Codec codec_;
   uint32_t h264_profile_;  // OMX_AVCProfile requested during Initialization.
-  bool component_name_is_nvidia_;
   bool deferred_init_allowed_;
 
   // Handle syncronous transition to EXECUTING state when deferred init is
