@@ -486,7 +486,7 @@ bool OmxVideoDecodeAccelerator::DecoderSpecificInitialization() {
 
 void OmxVideoDecodeAccelerator::Decode(
     const media::BitstreamBuffer& bitstream_buffer) {
-  TRACE_EVENT2("Video Decoder", "OVDA::Decode",
+  TRACE_EVENT2("media,gpu", "OVDA::Decode",
                "Buffer id", bitstream_buffer.id(),
                "Component input buffers", input_buffers_at_component_ + 1);
   DCHECK(child_task_runner_->BelongsToCurrentThread());
@@ -760,7 +760,7 @@ void OmxVideoDecodeAccelerator::AssignPictureBuffers(
 
 void OmxVideoDecodeAccelerator::ReusePictureBuffer(int32_t picture_buffer_id) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
-  TRACE_EVENT1("Video Decoder", "OVDA::ReusePictureBuffer",
+  TRACE_EVENT1("media,gpu", "OVDA::ReusePictureBuffer",
                "Picture id", picture_buffer_id);
 
   RETURN_ON_FAILURE(make_context_current_.Run(),
@@ -778,7 +778,7 @@ void OmxVideoDecodeAccelerator::CheckPictureStatus(
     std::unique_ptr<gl::GLFence> fence_obj
     ) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
-  TRACE_EVENT1("Video Decoder", "OVDA::CheckPictureStatus",
+  TRACE_EVENT1("media,gpu", "OVDA::CheckPictureStatus",
                "Picture id", picture_buffer_id);
 
   // It's possible for this task to never run if the message loop is
@@ -828,7 +828,7 @@ void OmxVideoDecodeAccelerator::QueuePictureBuffer(int32_t picture_buffer_id) {
 
   ++output_buffers_at_component_;
   output_picture.at_component = true;
-  TRACE_EVENT2("Video Decoder", "OVDA::QueuePictureBuffer",
+  TRACE_EVENT2("media,gpu", "OVDA::QueuePictureBuffer",
                "Picture id", picture_buffer_id,
                "At component", output_buffers_at_component_);
   OMX_ERRORTYPE result =
@@ -1306,7 +1306,7 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
 
   int picture_buffer_id = output_picture ? output_picture->picture_buffer.id() : -1;
 
-  TRACE_EVENT2("Video Decoder", "OVDA::FillBufferDoneTask",
+  TRACE_EVENT2("media,gpu", "OVDA::FillBufferDoneTask",
                "Buffer id", buffer->nTimeStamp,
                "Picture id", picture_buffer_id);
   DCHECK(decode_task_runner_->BelongsToCurrentThread());
@@ -1370,7 +1370,7 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
 
 void OmxVideoDecodeAccelerator::EmptyBufferDoneTask(
     OMX_BUFFERHEADERTYPE* buffer) {
-  TRACE_EVENT1("Video Decoder", "OVDA::EmptyBufferDoneTask",
+  TRACE_EVENT1("media,gpu", "OVDA::EmptyBufferDoneTask",
                "Buffer id", buffer->nTimeStamp);
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   DCHECK_GT(input_buffers_at_component_, 0);
@@ -1591,7 +1591,7 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::EmptyBufferCallback(
     OMX_HANDLETYPE component,
     OMX_PTR priv_data,
     OMX_BUFFERHEADERTYPE* buffer) {
-  TRACE_EVENT1("Video Decoder", "OVDA::EmptyBufferCallback",
+  TRACE_EVENT1("media,gpu", "OVDA::EmptyBufferCallback",
                "Buffer id", buffer->nTimeStamp);
   // Called on the OMX thread.
   OmxVideoDecodeAccelerator* decoder =
@@ -1611,7 +1611,7 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::FillBufferCallback(
   media::Picture* picture =
       reinterpret_cast<media::Picture*>(buffer->pAppPrivate);
   int picture_buffer_id = picture ? picture->picture_buffer_id() : -1;
-  TRACE_EVENT2("Video Decoder", "OVDA::FillBufferCallback",
+  TRACE_EVENT2("media,gpu", "OVDA::FillBufferCallback",
                "Buffer id", buffer->nTimeStamp,
                "Picture id", picture_buffer_id);
   // Called on the OMX thread.
