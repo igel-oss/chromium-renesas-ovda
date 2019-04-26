@@ -100,6 +100,10 @@
 #include "media/gpu/vaapi/vaapi_wrapper.h"
 #endif
 
+#if BUILDFLAG(USE_OMX_CODEC)
+#include "media/gpu/omx/omx_video_decode_accelerator.h"
+#endif
+
 #if defined(OS_MACOSX)
 extern "C" {
 void _LSSetApplicationLaunchServicesServerConnectionStatus(
@@ -163,6 +167,9 @@ class ContentSandboxHelper : public gpu::GpuSandboxHelper {
 #if defined(OS_WIN)
     media::DXVAVideoDecodeAccelerator::PreSandboxInitialization();
     media::MediaFoundationVideoEncodeAccelerator::PreSandboxInitialization();
+#endif
+#if BUILDFLAG(USE_OMX_CODEC)
+    media::OmxVideoDecodeAccelerator::PreSandboxInitialization();
 #endif
 
     // On Linux, reading system memory doesn't work through the GPU sandbox.

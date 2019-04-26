@@ -6,6 +6,7 @@
 #include <libdrm/drm_fourcc.h>
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -100,37 +101,6 @@ OmxVideoDecodeAccelerator::OutputPicture::~OutputPicture() {
       decoder.client_->DismissPictureBuffer(picture_buffer.id());
 }
 
-// Maps h264-related Profile enum values to OMX_VIDEO_AVCPROFILETYPE values.
-static OMX_U32 MapH264ProfileToOMXAVCProfile(uint32_t profile) {
-  switch (profile) {
-    case media::H264PROFILE_BASELINE:
-      return OMX_VIDEO_AVCProfileBaseline;
-    case media::H264PROFILE_MAIN:
-      return OMX_VIDEO_AVCProfileMain;
-    case media::H264PROFILE_EXTENDED:
-      return OMX_VIDEO_AVCProfileExtended;
-    case media::H264PROFILE_HIGH:
-      return OMX_VIDEO_AVCProfileHigh;
-    case media::H264PROFILE_HIGH10PROFILE:
-      return OMX_VIDEO_AVCProfileHigh10;
-    case media::H264PROFILE_HIGH422PROFILE:
-      return OMX_VIDEO_AVCProfileHigh422;
-    case media::H264PROFILE_HIGH444PREDICTIVEPROFILE:
-      return OMX_VIDEO_AVCProfileHigh444;
-    // Below enums don't have equivalent enum in Openmax.
-    case media::H264PROFILE_SCALABLEBASELINE:
-    case media::H264PROFILE_SCALABLEHIGH:
-    case media::H264PROFILE_STEREOHIGH:
-    case media::H264PROFILE_MULTIVIEWHIGH:
-      // Nvidia OMX video decoder requires the same resources (as that of the
-      // High profile) in every profile higher to the Main profile.
-      return OMX_VIDEO_AVCProfileHigh444;
-    default:
-      NOTREACHED();
-      return OMX_VIDEO_AVCProfileMax;
-  }
-}
-
 // Helper macros for dealing with failure.  If |result| evaluates false, emit
 // |log| to ERROR, register |error| with the decoder, and return |ret_val|
 // (which may be omitted for functions that return void).
@@ -149,6 +119,60 @@ static OMX_U32 MapH264ProfileToOMXAVCProfile(uint32_t profile) {
       ((omx_result) == OMX_ErrorNone),                                  \
       log << ", OMX result: 0x" << std::hex << omx_result,              \
       error, ret_val)
+
+const OmxVideoDecodeAccelerator::OmxrProfileManager &OmxVideoDecodeAccelerator::OmxrProfileManager::Get() {
+    static const base::NoDestructor<OmxrProfileManager> profile_manager;
+    return *profile_manager;
+}
+
+OmxVideoDecodeAccelerator::OmxrProfileManager::OmxrProfileManager() {
+    OMX_HANDLETYPE component_handle;
+
+    OMX_Init();
+
+    OMX_CALLBACKTYPE omx_accelerator_callbacks = {
+      &OmxVideoDecodeAccelerator::EventHandler,
+      &OmxVideoDecodeAccelerator::EmptyBufferCallback,
+      &OmxVideoDecodeAccelerator::FillBufferCallback
+    };
+
+    for (auto &profile : possible_profiles_) {
+        OMX_U32 num_components = 1;
+        OMX_STRING role_name = const_cast<OMX_STRING>(profile.first.role);
+        char *component = new char[OMX_MAX_STRINGNAME_SIZE];
+        OMX_ERRORTYPE result = OMX_GetComponentsOfRole(
+            role_name, &num_components,
+            reinterpret_cast<OMX_U8**>(&component));
+
+        if (result != OMX_ErrorNone || num_components < 1) {
+            delete[] component;
+            continue;
+        }
+
+        VLOG(1) << "Got component " << component << " for role: " << role_name;
+        result = OMX_GetHandle(&component_handle,
+            reinterpret_cast<OMX_STRING>(component),
+            NULL, &omx_accelerator_callbacks);
+
+        if (result == OMX_ErrorNone) {
+            supported_profiles_.insert(supported_profiles_.end(),
+                                       profile.second.begin(), profile.second.end());
+            profile.first.component = component;
+        }
+    }
+}
+
+const struct OmxVideoDecodeAccelerator::CodecInfo
+OmxVideoDecodeAccelerator::OmxrProfileManager::getCodecForProfile (VideoCodecProfile profile) const {
+    for (auto codec : possible_profiles_) {
+        for (auto supported_profile : codec.second) {
+            if (profile == supported_profile && codec.first.component) {
+                return codec.first;
+            }
+        }
+    }
+    return CodecInfo {UNKNOWN};
+}
 
 OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
     EGLDisplay egl_display,
@@ -171,14 +195,8 @@ OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
       reset_pending_(false),
       egl_display_(egl_display),
       make_context_current_(make_context_current),
-      codec_(UNKNOWN),
-      h264_profile_(OMX_VIDEO_AVCProfileMax) {
+      codec_(UNKNOWN) {
   weak_this_ = weak_this_factory_.GetWeakPtr();
-  static bool omx_functions_initialized = PostSandboxInitialization();
-  RETURN_ON_FAILURE(omx_functions_initialized,
-                    "Failed to load openmax library", PLATFORM_FAILURE,);
-  RETURN_ON_OMX_FAILURE(OMX_Init(), "Failed to init OpenMAX core",
-                        PLATFORM_FAILURE,);
 }
 
 OmxVideoDecodeAccelerator::~OmxVideoDecodeAccelerator() {
@@ -197,18 +215,13 @@ static void InitParam(T* param) {
   param->nSize = sizeof(T);
 }
 
-static const VideoCodecProfile kSupportedProfiles[] = {
-    H264PROFILE_BASELINE,
-    H264PROFILE_MAIN,
-    H264PROFILE_HIGH,
-    VP8PROFILE_ANY
-};
-
 VideoDecodeAccelerator::SupportedProfiles
 OmxVideoDecodeAccelerator::GetSupportedProfiles() {
     VideoDecodeAccelerator::SupportedProfiles profiles;
+    const std::vector<VideoCodecProfile> &supported_profiles =
+        OmxrProfileManager::Get().getSupportedProfiles();
 
-    for (const auto& profile : kSupportedProfiles) {
+    for (const auto& profile : supported_profiles) {
         const auto kMinSize = gfx::Size(130,98);
         const auto kMaxSize = gfx::Size(1920,1080);
         VideoDecodeAccelerator::SupportedProfile supp_profile;
@@ -224,19 +237,17 @@ OmxVideoDecodeAccelerator::GetSupportedProfiles() {
 bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client) {
   auto profile = config.profile;
   DCHECK(child_task_runner_->BelongsToCurrentThread());
+  CodecInfo cinfo;
 
-  if (profile >= media::H264PROFILE_MIN && profile <= media::H264PROFILE_MAX) {
-    codec_ = H264;
-    h264_profile_ = MapH264ProfileToOMXAVCProfile(profile);
-    RETURN_ON_FAILURE(h264_profile_ != OMX_VIDEO_AVCProfileMax,
-                      "Unexpected profile", INVALID_ARGUMENT, false);
-    h264_parser_.reset(new H264Parser);
-  } else if (profile >= media::VP8PROFILE_MIN && profile <= media::VP8PROFILE_MAX) {
-    codec_ = VP8;
-  } else {
-    RETURN_ON_FAILURE(false, "Unsupported profile: " << profile,
+  cinfo = OmxrProfileManager::Get().getCodecForProfile(profile);
+
+  RETURN_ON_FAILURE(cinfo.codec != UNKNOWN, "Unsupported profile: " << profile,
                       INVALID_ARGUMENT, false);
-  }
+
+  codec_ = cinfo.codec;
+
+  if (codec_ == H264)
+    h264_parser_.reset(new H264Parser);
 
   // Make sure that we have a context we can use for EGL image binding.
   RETURN_ON_FAILURE(make_context_current_.Run(),
@@ -262,7 +273,7 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
                     PLATFORM_FAILURE,
                     false);
 
-  if (!CreateComponent())  // Does its own RETURN_ON_FAILURE dances.
+  if (!CreateComponent(cinfo))  // Does its own RETURN_ON_FAILURE dances.
     return false;
   if (!DecoderSpecificInitialization())  // Does its own RETURN_ON_FAILURE dances.
     return false;
@@ -299,43 +310,22 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
 
 }
 
-bool OmxVideoDecodeAccelerator::CreateComponent() {
+bool OmxVideoDecodeAccelerator::CreateComponent(const struct CodecInfo &cinfo) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
+  OMX_ERRORTYPE result;
   OMX_CALLBACKTYPE omx_accelerator_callbacks = {
     &OmxVideoDecodeAccelerator::EventHandler,
     &OmxVideoDecodeAccelerator::EmptyBufferCallback,
     &OmxVideoDecodeAccelerator::FillBufferCallback
   };
 
-  OMX_STRING role_name = codec_ == H264 ?
-      const_cast<OMX_STRING>("video_decoder.avc") :
-      const_cast<OMX_STRING>("video_decoder.vpx");
-
-  // Get the first component for this role and set the role on it.
-
-  OMX_U32 num_components = 1;
-  char *component;
-  component = new char[OMX_MAX_STRINGNAME_SIZE];
-
-  OMX_ERRORTYPE result = OMX_GetComponentsOfRole(
-      role_name, &num_components,
-      reinterpret_cast<OMX_U8**>(&component));
-  RETURN_ON_OMX_FAILURE(result, "Unsupported role: " << role_name,
-                        PLATFORM_FAILURE, false);
-  RETURN_ON_FAILURE(num_components == 1, "No components for: " << role_name,
-                    PLATFORM_FAILURE, false);
-
-  VLOG(1) << "Got component " << component << " for role: " << role_name;
-
   // Get the handle to the component.
   result = OMX_GetHandle(
-      &component_handle_,
-      reinterpret_cast<OMX_STRING>(component),
+      &component_handle_, cinfo.component,
       this, &omx_accelerator_callbacks);
-  delete[] component;
 
   RETURN_ON_OMX_FAILURE(result,
-                        "Failed to OMX_GetHandle on: " << component,
+                        "Failed to OMX_GetHandle on: " << cinfo.component,
                         PLATFORM_FAILURE, false);
   client_state_ = OMX_StateLoaded;
 
@@ -357,7 +347,7 @@ bool OmxVideoDecodeAccelerator::CreateComponent() {
   OMX_PARAM_COMPONENTROLETYPE role_type;
   InitParam(&role_type);
   base::strlcpy(reinterpret_cast<char*>(role_type.cRole),
-                role_name,
+                cinfo.role,
                 OMX_MAX_STRINGNAME_SIZE);
 
   result = OMX_SetParameter(component_handle_,
@@ -1096,7 +1086,6 @@ void OmxVideoDecodeAccelerator::ShutdownComponent() {
   if (result != OMX_ErrorNone)
     DLOG(ERROR) << "OMX_FreeHandle() error. Error code: " << result;
   client_state_ = OMX_StateMax;
-  OMX_Deinit();
   // Allow BusyLoopInDestroying to exit and delete |this|.
   component_handle_ = NULL;
 }
@@ -1551,13 +1540,16 @@ void OmxVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
 }
 
 // static
-bool OmxVideoDecodeAccelerator::PostSandboxInitialization() {
+void OmxVideoDecodeAccelerator::PreSandboxInitialization() {
+  VLOG(1) << "Starting pre sandbox init";
   StubPathMap paths;
   paths[kModuleOmx].push_back(kOMXLib);
   paths[kModuleMmngr].push_back(kMMNGRLib);
   paths[kModuleMmngrbuf].push_back(kMMNGRBufLib);
+  InitializeStubs(paths);
 
-  return InitializeStubs(paths);
+  //enumerate and dlopen codec libraries*/
+  OmxrProfileManager::Get();
 }
 
 // static

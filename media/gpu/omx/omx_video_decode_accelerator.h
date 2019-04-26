@@ -87,7 +87,14 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   enum Codec {
     UNKNOWN,
     H264,
-    VP8
+    VP8,
+    CODEC_MAX,
+  };
+
+  struct CodecInfo {
+    Codec codec;
+    const char *role;
+    char *component;
   };
 
   // Helper struct for keeping track of MMNGR buffer metadata
@@ -120,6 +127,23 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
     bool allocated;
   };
 
+  class OmxrProfileManager {
+  public:
+    static const OmxrProfileManager &Get();
+
+    OmxrProfileManager();
+    ~OmxrProfileManager() = default;
+
+    const struct CodecInfo getCodecForProfile(VideoCodecProfile profile) const;
+    const std::vector<VideoCodecProfile> & getSupportedProfiles() const { return supported_profiles_;}
+  private:
+    std::vector<std::pair<struct CodecInfo, std::vector<VideoCodecProfile>>> possible_profiles_ = {
+        {{H264, "video_decoder.avc", nullptr}, {H264PROFILE_BASELINE, H264PROFILE_MAIN, H264PROFILE_HIGH}},
+        {{VP8, "video_decoder.vp9", nullptr}, {VP8PROFILE_ANY}}
+    };
+    std::vector<VideoCodecProfile> supported_profiles_;
+  };
+
   struct BitstreamBufferRef {
     BitstreamBufferRef(
       const media::BitstreamBuffer &buf,
@@ -142,7 +166,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   OMX_HANDLETYPE component_handle_;
 
   // Create the Component for OMX. Handles all OMX initialization.
-  bool CreateComponent();
+  bool CreateComponent(const struct CodecInfo &cinfo);
   // Do any decoder specific initialization not covered in the standard OMX spec
   bool DecoderSpecificInitialization();
 
@@ -196,10 +220,6 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   void DecodeBuffer(std::unique_ptr<struct BitstreamBufferRef> input_buffer);
   // Decode bitstream buffers that were queued (see queued_bitstream_buffers_).
   void DecodeQueuedBitstreamBuffers();
-
-  // Lazily initialize static data after sandbox is enabled.  Return false on
-  // init failure.
-  static bool PostSandboxInitialization();
 
   // Weak pointer to |this|; used to safely trampoline calls from the OMX thread
   // to the ChildThread.  Since |this| is kept alive until OMX is fully shut
@@ -285,7 +305,6 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
 
   // These members are only used during Initialization.
   Codec codec_;
-  uint32_t h264_profile_;  // OMX_AVCProfile requested during Initialization.
   bool deferred_init_allowed_;
 
   // Handle syncronous transition to EXECUTING state when deferred init is
