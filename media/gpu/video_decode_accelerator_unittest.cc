@@ -84,6 +84,10 @@
 #include "media/gpu/vaapi/vaapi_wrapper.h"
 #endif  // BUILDFLAG(USE_VAAPI)
 
+#if BUILDFLAG(USE_OMX_CODEC)
+#include "redia/gpu/omx/omx_video_decode_accelerator.h"
+#endif  // BUILDFLAG(USE_OMX_CODEC)
+
 #if defined(OS_CHROMEOS)
 #include "ui/ozone/public/ozone_platform.h"
 #endif  // defined(OS_CHROMEOS)
@@ -1789,6 +1793,8 @@ class VDATestSuite : public base::TestSuite {
     media::VaapiWrapper::PreSandboxInitialization();
 #elif defined(OS_WIN)
     media::DXVAVideoDecodeAccelerator::PreSandboxInitialization();
+#elif BUILDFLAG(USE_OMX_CODEC)
+    media::OmxVideoDecodeAccelerator::PreSandboxInitialization();
 #endif
   }
 
