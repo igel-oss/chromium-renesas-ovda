@@ -125,7 +125,7 @@ class MEDIA_GPU_EXPORT GpuVideoDecodeAcceleratorFactory {
       MediaLog* media_log) const;
 #endif
 #if BUILDFLAG(USE_OMX_CODEC)
-  std::unique_ptr<VideoDecodeAccelerator> CreateOMXVDA(
+  std::unique_ptr<VideoDecodeAccelerator> CreateOMXRVDA(
       const gpu::GpuDriverBugWorkarounds& workarounds,
       const gpu::GpuPreferences& gpu_preferences,
       MediaLog* media_log) const;

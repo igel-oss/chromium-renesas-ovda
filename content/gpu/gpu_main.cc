@@ -101,7 +101,7 @@
 #endif
 
 #if BUILDFLAG(USE_OMX_CODEC)
-#include "media/gpu/omx/omx_video_decode_accelerator.h"
+#include "media/gpu/omx/omxr_video_decode_accelerator.h"
 #endif
 
 #if defined(OS_MACOSX)
@@ -169,7 +169,7 @@ class ContentSandboxHelper : public gpu::GpuSandboxHelper {
     media::MediaFoundationVideoEncodeAccelerator::PreSandboxInitialization();
 #endif
 #if BUILDFLAG(USE_OMX_CODEC)
-    media::OmxVideoDecodeAccelerator::PreSandboxInitialization();
+    media::OmxrVideoDecodeAccelerator::PreSandboxInitialization();
 #endif
 
     // On Linux, reading system memory doesn't work through the GPU sandbox.

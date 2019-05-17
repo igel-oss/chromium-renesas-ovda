@@ -39,14 +39,14 @@ namespace media {
 // This class lives on a single thread (the GPU process ChildThread) and DCHECKs
 // that it is never accessed from any other.  OMX callbacks are trampolined from
 // the OMX component's thread to maintain this invariant, using |weak_this()|.
-class CONTENT_EXPORT OmxVideoDecodeAccelerator :
+class CONTENT_EXPORT OmxrVideoDecodeAccelerator :
     public VideoDecodeAccelerator {
  public:
   // Does not take ownership of |client| which must outlive |*this|.
-  OmxVideoDecodeAccelerator(
+  OmxrVideoDecodeAccelerator(
       EGLDisplay egl_display,
       const base::Callback<bool(void)>& make_context_current);
-  virtual ~OmxVideoDecodeAccelerator();
+  virtual ~OmxrVideoDecodeAccelerator();
 
   // media::VideoDecodeAccelerator implementation.
   bool Initialize(const Config& config, Client* client) override;
@@ -60,7 +60,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   bool TryToSetupDecodeOnSeparateThread(const base::WeakPtr<Client>& decode_client,
    const scoped_refptr<base::SingleThreadTaskRunner>& decode_task_runner) override;
 
-  base::WeakPtr<OmxVideoDecodeAccelerator> weak_this() { return weak_this_; }
+  base::WeakPtr<OmxrVideoDecodeAccelerator> weak_this() { return weak_this_; }
 
   static VideoDecodeAccelerator::SupportedProfiles GetSupportedProfiles();
   // Do any necessary initialization before the sandbox is enabled.
@@ -109,7 +109,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   // buffer and the PictureBuffer it points to.
   struct OutputPicture {
     OutputPicture(
-          const OmxVideoDecodeAccelerator &dec,
+          const OmxrVideoDecodeAccelerator &dec,
           media::PictureBuffer pbuffer,
           OMX_BUFFERHEADERTYPE* obuffer,
           EGLImageKHR eimage,
@@ -118,7 +118,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
 
     OMX_ERRORTYPE FreeOMXHandle();
 
-    const OmxVideoDecodeAccelerator &decoder;
+    const OmxrVideoDecodeAccelerator &decoder;
     media::PictureBuffer picture_buffer;
     OMX_BUFFERHEADERTYPE* omx_buffer_header;
     EGLImageKHR egl_image;
@@ -194,7 +194,7 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   void OnReachedEOSInFlushing();
   void OnReachedInvalidInErroring();
   void ShutdownComponent();
-  void BusyLoopInDestroying(std::unique_ptr<OmxVideoDecodeAccelerator> self);
+  void BusyLoopInDestroying(std::unique_ptr<OmxrVideoDecodeAccelerator> self);
 
   // Port-flushing helpers.
   void FlushIOPorts();
@@ -224,8 +224,8 @@ class CONTENT_EXPORT OmxVideoDecodeAccelerator :
   // Weak pointer to |this|; used to safely trampoline calls from the OMX thread
   // to the ChildThread.  Since |this| is kept alive until OMX is fully shut
   // down, only the OMX->Child thread direction needs to be guarded this way.
-  base::WeakPtr<OmxVideoDecodeAccelerator> weak_this_;
-  base::WeakPtrFactory<OmxVideoDecodeAccelerator> weak_this_factory_;
+  base::WeakPtr<OmxrVideoDecodeAccelerator> weak_this_;
+  base::WeakPtrFactory<OmxrVideoDecodeAccelerator> weak_this_factory_;
 
   // True once Initialize() has returned true; before this point there's never a
   // point in calling client_->NotifyError().

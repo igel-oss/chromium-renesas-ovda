@@ -211,8 +211,8 @@ component("gpu") {
       sources += get_target_outputs(":omx_generate_stubs")
       deps += [ ":omx_generate_stubs" ]
       sources += [
-        "omx/omx_video_decode_accelerator.cc",
-        "omx/omx_video_decode_accelerator.h",
+        "omx/omxr_video_decode_accelerator.cc",
+        "omx/omxr_video_decode_accelerator.h",
       ]
       deps += [
         "//third_party/openmax/il:openmax_il",

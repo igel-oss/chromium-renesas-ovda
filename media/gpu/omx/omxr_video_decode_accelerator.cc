@@ -1,7 +1,7 @@
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-#include "media/gpu/omx/omx_video_decode_accelerator.h"
+#include "media/gpu/omx/omxr_video_decode_accelerator.h"
 
 #include <libdrm/drm_fourcc.h>
 #include "base/bind.h"
@@ -46,7 +46,7 @@ enum { kNumPictureBuffers = 8 };
 // for more difficult frames.
 enum { kSyncPollDelayMs = 5 };
 
-OmxVideoDecodeAccelerator::BitstreamBufferRef::BitstreamBufferRef(
+OmxrVideoDecodeAccelerator::BitstreamBufferRef::BitstreamBufferRef(
     const media::BitstreamBuffer &buf,
     scoped_refptr<base::SingleThreadTaskRunner> tr,
     base::WeakPtr<Client> cl)
@@ -59,15 +59,15 @@ OmxVideoDecodeAccelerator::BitstreamBufferRef::BitstreamBufferRef(
   memory = shm->memory();
 }
 
-OmxVideoDecodeAccelerator::BitstreamBufferRef::~BitstreamBufferRef() {
+OmxrVideoDecodeAccelerator::BitstreamBufferRef::~BitstreamBufferRef() {
     if (id < 0)
         return;
     task_runner->PostTask(FROM_HERE, base::Bind(
      &Client::NotifyEndOfBitstreamBuffer, client, id));
 }
 
-OmxVideoDecodeAccelerator::OutputPicture::OutputPicture(
-  const OmxVideoDecodeAccelerator &dec,
+OmxrVideoDecodeAccelerator::OutputPicture::OutputPicture(
+  const OmxrVideoDecodeAccelerator &dec,
   media::PictureBuffer pbuffer,
   OMX_BUFFERHEADERTYPE* obuffer,
   EGLImageKHR eimage,
@@ -78,7 +78,7 @@ OmxVideoDecodeAccelerator::OutputPicture::OutputPicture(
     at_component(false),
     allocated(false) {}
 
-OMX_ERRORTYPE OmxVideoDecodeAccelerator::OutputPicture::FreeOMXHandle() {
+OMX_ERRORTYPE OmxrVideoDecodeAccelerator::OutputPicture::FreeOMXHandle() {
   OMX_BUFFERHEADERTYPE* obuffer = omx_buffer_header;
   if (!obuffer)
     return OMX_ErrorNone;
@@ -87,7 +87,7 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::OutputPicture::FreeOMXHandle() {
   return OMX_FreeBuffer(decoder.component_handle_, decoder.output_port_, obuffer);
 }
 
-OmxVideoDecodeAccelerator::OutputPicture::~OutputPicture() {
+OmxrVideoDecodeAccelerator::OutputPicture::~OutputPicture() {
 
     VLOGF(1) << "Deleting picture " << picture_buffer.id();
 
@@ -120,20 +120,20 @@ OmxVideoDecodeAccelerator::OutputPicture::~OutputPicture() {
       log << ", OMX result: 0x" << std::hex << omx_result,              \
       error, ret_val)
 
-const OmxVideoDecodeAccelerator::OmxrProfileManager &OmxVideoDecodeAccelerator::OmxrProfileManager::Get() {
+const OmxrVideoDecodeAccelerator::OmxrProfileManager &OmxrVideoDecodeAccelerator::OmxrProfileManager::Get() {
     static const base::NoDestructor<OmxrProfileManager> profile_manager;
     return *profile_manager;
 }
 
-OmxVideoDecodeAccelerator::OmxrProfileManager::OmxrProfileManager() {
+OmxrVideoDecodeAccelerator::OmxrProfileManager::OmxrProfileManager() {
     OMX_HANDLETYPE component_handle;
 
     OMX_Init();
 
     OMX_CALLBACKTYPE omx_accelerator_callbacks = {
-      &OmxVideoDecodeAccelerator::EventHandler,
-      &OmxVideoDecodeAccelerator::EmptyBufferCallback,
-      &OmxVideoDecodeAccelerator::FillBufferCallback
+      &OmxrVideoDecodeAccelerator::EventHandler,
+      &OmxrVideoDecodeAccelerator::EmptyBufferCallback,
+      &OmxrVideoDecodeAccelerator::FillBufferCallback
     };
 
     for (auto &profile : possible_profiles_) {
@@ -162,8 +162,8 @@ OmxVideoDecodeAccelerator::OmxrProfileManager::OmxrProfileManager() {
     }
 }
 
-const struct OmxVideoDecodeAccelerator::CodecInfo
-OmxVideoDecodeAccelerator::OmxrProfileManager::getCodecForProfile (VideoCodecProfile profile) const {
+const struct OmxrVideoDecodeAccelerator::CodecInfo
+OmxrVideoDecodeAccelerator::OmxrProfileManager::getCodecForProfile (VideoCodecProfile profile) const {
     for (auto codec : possible_profiles_) {
         for (auto supported_profile : codec.second) {
             if (profile == supported_profile && codec.first.component) {
@@ -174,7 +174,7 @@ OmxVideoDecodeAccelerator::OmxrProfileManager::getCodecForProfile (VideoCodecPro
     return CodecInfo {UNKNOWN};
 }
 
-OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
+OmxrVideoDecodeAccelerator::OmxrVideoDecodeAccelerator(
     EGLDisplay egl_display,
     const base::Callback<bool(void)>& make_context_current)
     : child_task_runner_(base::ThreadTaskRunnerHandle::Get()),
@@ -199,7 +199,7 @@ OmxVideoDecodeAccelerator::OmxVideoDecodeAccelerator(
   weak_this_ = weak_this_factory_.GetWeakPtr();
 }
 
-OmxVideoDecodeAccelerator::~OmxVideoDecodeAccelerator() {
+OmxrVideoDecodeAccelerator::~OmxrVideoDecodeAccelerator() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   DCHECK(free_input_buffers_.empty());
   DCHECK_EQ(0, input_buffers_at_component_);
@@ -216,7 +216,7 @@ static void InitParam(T* param) {
 }
 
 VideoDecodeAccelerator::SupportedProfiles
-OmxVideoDecodeAccelerator::GetSupportedProfiles() {
+OmxrVideoDecodeAccelerator::GetSupportedProfiles() {
     VideoDecodeAccelerator::SupportedProfiles profiles;
     const std::vector<VideoCodecProfile> &supported_profiles =
         OmxrProfileManager::Get().getSupportedProfiles();
@@ -234,7 +234,7 @@ OmxVideoDecodeAccelerator::GetSupportedProfiles() {
     return profiles;
 }
 
-bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client) {
+bool OmxrVideoDecodeAccelerator::Initialize(const Config& config, Client* client) {
   auto profile = config.profile;
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   CodecInfo cinfo;
@@ -310,13 +310,13 @@ bool OmxVideoDecodeAccelerator::Initialize(const Config& config, Client* client)
 
 }
 
-bool OmxVideoDecodeAccelerator::CreateComponent(const struct CodecInfo &cinfo) {
+bool OmxrVideoDecodeAccelerator::CreateComponent(const struct CodecInfo &cinfo) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   OMX_ERRORTYPE result;
   OMX_CALLBACKTYPE omx_accelerator_callbacks = {
-    &OmxVideoDecodeAccelerator::EventHandler,
-    &OmxVideoDecodeAccelerator::EmptyBufferCallback,
-    &OmxVideoDecodeAccelerator::FillBufferCallback
+    &OmxrVideoDecodeAccelerator::EventHandler,
+    &OmxrVideoDecodeAccelerator::EmptyBufferCallback,
+    &OmxrVideoDecodeAccelerator::FillBufferCallback
   };
 
   // Get the handle to the component.
@@ -408,7 +408,7 @@ bool OmxVideoDecodeAccelerator::CreateComponent(const struct CodecInfo &cinfo) {
   return true;
 }
 
-bool OmxVideoDecodeAccelerator::DecoderSpecificInitialization() {
+bool OmxrVideoDecodeAccelerator::DecoderSpecificInitialization() {
   OMXR_MC_VIDEO_PARAM_REORDERTYPE param_reorder;
   InitParam(&param_reorder);
 
@@ -474,7 +474,7 @@ bool OmxVideoDecodeAccelerator::DecoderSpecificInitialization() {
   return true;
 }
 
-void OmxVideoDecodeAccelerator::Decode(
+void OmxrVideoDecodeAccelerator::Decode(
     const media::BitstreamBuffer& bitstream_buffer) {
   TRACE_EVENT2("media,gpu", "OVDA::Decode",
                "Buffer id", bitstream_buffer.id(),
@@ -490,7 +490,7 @@ void OmxVideoDecodeAccelerator::Decode(
   DecodeBuffer(std::move(buffer));
 }
 
-void OmxVideoDecodeAccelerator::DecodeBuffer(std::unique_ptr<struct BitstreamBufferRef> input_buffer) {
+void OmxrVideoDecodeAccelerator::DecodeBuffer(std::unique_ptr<struct BitstreamBufferRef> input_buffer) {
   if (current_state_change_ == RESETTING ||
       current_state_change_ == INITIALIZING ||
       !queued_bitstream_buffers_.empty() ||
@@ -630,7 +630,7 @@ void OmxVideoDecodeAccelerator::DecodeBuffer(std::unique_ptr<struct BitstreamBuf
   //processed |input_buffer|s go out of scope here and return to client.
 }
 
-void OmxVideoDecodeAccelerator::AssignPictureBuffers(
+void OmxrVideoDecodeAccelerator::AssignPictureBuffers(
     const std::vector<media::PictureBuffer>& buffers) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
@@ -748,7 +748,7 @@ void OmxVideoDecodeAccelerator::AssignPictureBuffers(
   current_state_change_ = NO_TRANSITION;
 }
 
-void OmxVideoDecodeAccelerator::ReusePictureBuffer(int32_t picture_buffer_id) {
+void OmxrVideoDecodeAccelerator::ReusePictureBuffer(int32_t picture_buffer_id) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   TRACE_EVENT1("media,gpu", "OVDA::ReusePictureBuffer",
                "Picture id", picture_buffer_id);
@@ -763,7 +763,7 @@ void OmxVideoDecodeAccelerator::ReusePictureBuffer(int32_t picture_buffer_id) {
   CheckPictureStatus(picture_buffer_id, std::move(picture_sync_fence));
 }
 
-void OmxVideoDecodeAccelerator::CheckPictureStatus(
+void OmxrVideoDecodeAccelerator::CheckPictureStatus(
     int32_t picture_buffer_id,
     std::unique_ptr<gl::GLFence> fence_obj
     ) {
@@ -777,7 +777,7 @@ void OmxVideoDecodeAccelerator::CheckPictureStatus(
   // are in pictures_ map and that's what will be used to do the clean up.
   if (!fence_obj->HasCompleted()) {
     child_task_runner_->PostDelayedTask(FROM_HERE, base::Bind(
-        &OmxVideoDecodeAccelerator::CheckPictureStatus, weak_this_,
+        &OmxrVideoDecodeAccelerator::CheckPictureStatus, weak_this_,
         picture_buffer_id, base::Passed(&fence_obj)),
         base::TimeDelta::FromMilliseconds(kSyncPollDelayMs));
     return;
@@ -786,7 +786,7 @@ void OmxVideoDecodeAccelerator::CheckPictureStatus(
   QueuePictureBuffer(picture_buffer_id);
 }
 
-void OmxVideoDecodeAccelerator::QueuePictureBuffer(int32_t picture_buffer_id) {
+void OmxrVideoDecodeAccelerator::QueuePictureBuffer(int32_t picture_buffer_id) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
   if (picture_buffer_id < 0)
@@ -827,7 +827,7 @@ void OmxVideoDecodeAccelerator::QueuePictureBuffer(int32_t picture_buffer_id) {
                         PLATFORM_FAILURE,);
 }
 
-void OmxVideoDecodeAccelerator::Flush() {
+void OmxrVideoDecodeAccelerator::Flush() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   DCHECK_EQ(current_state_change_, NO_TRANSITION);
   DCHECK_EQ(client_state_, OMX_StateExecuting);
@@ -843,7 +843,7 @@ void OmxVideoDecodeAccelerator::Flush() {
   Decode(media::BitstreamBuffer(-1, base::SharedMemoryHandle(), 0));
 }
 
-void OmxVideoDecodeAccelerator::OnReachedEOSInFlushing() {
+void OmxrVideoDecodeAccelerator::OnReachedEOSInFlushing() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   DCHECK_EQ(client_state_, OMX_StateExecuting);
   VLOGF(1);
@@ -852,7 +852,7 @@ void OmxVideoDecodeAccelerator::OnReachedEOSInFlushing() {
     client_->NotifyFlushDone();
 }
 
-void OmxVideoDecodeAccelerator::FlushIOPorts() {
+void OmxrVideoDecodeAccelerator::FlushIOPorts() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
   // Flush input port first.
@@ -860,20 +860,20 @@ void OmxVideoDecodeAccelerator::FlushIOPorts() {
     return;
 }
 
-void OmxVideoDecodeAccelerator::InputPortFlushDone() {
+void OmxrVideoDecodeAccelerator::InputPortFlushDone() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   DCHECK_EQ(input_buffers_at_component_, 0);
   if (!SendCommandToPort(OMX_CommandFlush, output_port_))
     return;
 }
 
-void OmxVideoDecodeAccelerator::OutputPortFlushDone() {
+void OmxrVideoDecodeAccelerator::OutputPortFlushDone() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   DCHECK_EQ(output_buffers_at_component_, 0);
   BeginTransitionToState(OMX_StateExecuting);
 }
 
-void OmxVideoDecodeAccelerator::Reset() {
+void OmxrVideoDecodeAccelerator::Reset() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   DCHECK(current_state_change_ == NO_TRANSITION ||
         current_state_change_ == FLUSHING ||
@@ -900,17 +900,17 @@ void OmxVideoDecodeAccelerator::Reset() {
   FinishReset();
 }
 
-void OmxVideoDecodeAccelerator::FinishReset() {
+void OmxrVideoDecodeAccelerator::FinishReset() {
   current_state_change_ = RESETTING;
   reset_pending_ = false;
   queued_bitstream_buffers_.clear();
   BeginTransitionToState(OMX_StatePause);
 }
 
-void OmxVideoDecodeAccelerator::Destroy() {
+void OmxrVideoDecodeAccelerator::Destroy() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
-  std::unique_ptr<OmxVideoDecodeAccelerator> deleter(this);
+  std::unique_ptr<OmxrVideoDecodeAccelerator> deleter(this);
   client_ptr_factory_->InvalidateWeakPtrs();
 
   if (current_state_change_ == ERRORING ||
@@ -938,14 +938,14 @@ void OmxVideoDecodeAccelerator::Destroy() {
   BusyLoopInDestroying(std::move(deleter));
 }
 
-bool OmxVideoDecodeAccelerator::TryToSetupDecodeOnSeparateThread(
+bool OmxrVideoDecodeAccelerator::TryToSetupDecodeOnSeparateThread(
     const base::WeakPtr<Client>& decode_client,
     const scoped_refptr<base::SingleThreadTaskRunner>& decode_task_runner) {
 
     return false;
 }
 
-void OmxVideoDecodeAccelerator::BeginTransitionToState(
+void OmxrVideoDecodeAccelerator::BeginTransitionToState(
     OMX_STATETYPE new_state) {
   VLOGF(1) << "new_state = " << new_state;
   DCHECK(new_state == OMX_StateInvalid ||
@@ -960,14 +960,14 @@ void OmxVideoDecodeAccelerator::BeginTransitionToState(
                         PLATFORM_FAILURE,);
 }
 
-void OmxVideoDecodeAccelerator::OnReachedIdleInInitializing() {
+void OmxrVideoDecodeAccelerator::OnReachedIdleInInitializing() {
   VLOGF(1);
   DCHECK_EQ(client_state_, OMX_StateLoaded);
   client_state_ = OMX_StateIdle;
   BeginTransitionToState(OMX_StateExecuting);
 }
 
-void OmxVideoDecodeAccelerator::OnReachedExecutingInInitializing() {
+void OmxrVideoDecodeAccelerator::OnReachedExecutingInInitializing() {
   VLOGF(1);
   DCHECK_EQ(client_state_, OMX_StateIdle);
   base::AutoLock auto_lock_(init_lock_);
@@ -995,13 +995,13 @@ void OmxVideoDecodeAccelerator::OnReachedExecutingInInitializing() {
   }
 }
 
-void OmxVideoDecodeAccelerator::OnReachedPauseInResetting() {
+void OmxrVideoDecodeAccelerator::OnReachedPauseInResetting() {
   DCHECK_EQ(client_state_, OMX_StateExecuting);
   client_state_ = OMX_StatePause;
   FlushIOPorts();
 }
 
-void OmxVideoDecodeAccelerator::DecodeQueuedBitstreamBuffers() {
+void OmxrVideoDecodeAccelerator::DecodeQueuedBitstreamBuffers() {
   BitstreamBufferList buffers;
   buffers.swap(queued_bitstream_buffers_);
   if (current_state_change_ == DESTROYING ||
@@ -1012,7 +1012,7 @@ void OmxVideoDecodeAccelerator::DecodeQueuedBitstreamBuffers() {
     DecodeBuffer(std::move(buffers[i]));
 }
 
-void OmxVideoDecodeAccelerator::OnReachedExecutingInResetting() {
+void OmxrVideoDecodeAccelerator::OnReachedExecutingInResetting() {
   DCHECK_EQ(client_state_, OMX_StatePause);
   VLOGF(1);
   client_state_ = OMX_StateExecuting;
@@ -1042,18 +1042,18 @@ void OmxVideoDecodeAccelerator::OnReachedExecutingInResetting() {
 // repeatedly enqueuing a no-op task until shutdown is complete, since
 // MessageLoop's shutdown drains pending tasks.
 // TODO(dhobsong): Yes indeed.  Review this.
-void OmxVideoDecodeAccelerator::BusyLoopInDestroying(
-    std::unique_ptr<OmxVideoDecodeAccelerator> self) {
+void OmxrVideoDecodeAccelerator::BusyLoopInDestroying(
+    std::unique_ptr<OmxrVideoDecodeAccelerator> self) {
   if (!component_handle_) return;
   // Can't use PostDelayedTask here because MessageLoop doesn't drain delayed
   // tasks.  Instead we sleep for 5ms.  Really.
   base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(5));
   self->child_task_runner_->PostTask(FROM_HERE, base::Bind(
-      &OmxVideoDecodeAccelerator::BusyLoopInDestroying,
+      &OmxrVideoDecodeAccelerator::BusyLoopInDestroying,
       base::Unretained(this), base::Passed(&self)));
 }
 
-void OmxVideoDecodeAccelerator::OnReachedIdleInDestroying() {
+void OmxrVideoDecodeAccelerator::OnReachedIdleInDestroying() {
   DCHECK(client_state_ == OMX_StateExecuting ||
          client_state_ == OMX_StateIdle ||
          client_state_ == OMX_StatePause);
@@ -1068,20 +1068,20 @@ void OmxVideoDecodeAccelerator::OnReachedIdleInDestroying() {
   FreeOMXBuffers();
 }
 
-void OmxVideoDecodeAccelerator::OnReachedLoadedInDestroying() {
+void OmxrVideoDecodeAccelerator::OnReachedLoadedInDestroying() {
   DCHECK_EQ(client_state_, OMX_StateIdle);
   client_state_ = OMX_StateLoaded;
   current_state_change_ = NO_TRANSITION;
   ShutdownComponent();
 }
 
-void OmxVideoDecodeAccelerator::OnReachedInvalidInErroring() {
+void OmxrVideoDecodeAccelerator::OnReachedInvalidInErroring() {
   client_state_ = OMX_StateInvalid;
   FreeOMXBuffers();
   ShutdownComponent();
 }
 
-void OmxVideoDecodeAccelerator::ShutdownComponent() {
+void OmxrVideoDecodeAccelerator::ShutdownComponent() {
   OMX_ERRORTYPE result = OMX_FreeHandle(component_handle_);
   if (result != OMX_ErrorNone)
     DLOG(ERROR) << "OMX_FreeHandle() error. Error code: " << result;
@@ -1090,7 +1090,7 @@ void OmxVideoDecodeAccelerator::ShutdownComponent() {
   component_handle_ = NULL;
 }
 
-void OmxVideoDecodeAccelerator::StopOnError(
+void OmxrVideoDecodeAccelerator::StopOnError(
     media::VideoDecodeAccelerator::Error error) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
@@ -1108,7 +1108,7 @@ void OmxVideoDecodeAccelerator::StopOnError(
   current_state_change_ = ERRORING;
 }
 
-bool OmxVideoDecodeAccelerator::AllocateInputBuffers() {
+bool OmxrVideoDecodeAccelerator::AllocateInputBuffers() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   VLOG(1) << __func__ << ": Allocating " << input_buffer_count_ << " buffers of size: " << input_buffer_size_;
   for (int i = 0; i < input_buffer_count_; ++i) {
@@ -1127,7 +1127,7 @@ bool OmxVideoDecodeAccelerator::AllocateInputBuffers() {
   return true;
 }
 
-bool OmxVideoDecodeAccelerator::AllocateFakeOutputBuffers() {
+bool OmxrVideoDecodeAccelerator::AllocateFakeOutputBuffers() {
   // Fill the component with fake output buffers.
   VLOG(1) << __func__ << ": Allocating " << kNumPictureBuffers << " buffers of size: " << output_buffer_size_;
   for (unsigned int i = 0; i < kNumPictureBuffers; ++i) {
@@ -1145,7 +1145,7 @@ bool OmxVideoDecodeAccelerator::AllocateFakeOutputBuffers() {
   return true;
 }
 
-bool OmxVideoDecodeAccelerator::AllocateOutputBuffers(int size) {
+bool OmxrVideoDecodeAccelerator::AllocateOutputBuffers(int size) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
   DCHECK(!pictures_.empty());
@@ -1168,7 +1168,7 @@ bool OmxVideoDecodeAccelerator::AllocateOutputBuffers(int size) {
   return true;
 }
 
-void OmxVideoDecodeAccelerator::FreeOMXBuffers() {
+void OmxrVideoDecodeAccelerator::FreeOMXBuffers() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   bool failure_seen = false;
   while (!free_input_buffers_.empty()) {
@@ -1208,7 +1208,7 @@ void OmxVideoDecodeAccelerator::FreeOMXBuffers() {
   RETURN_ON_FAILURE(!failure_seen, "OMX_FreeBuffer", PLATFORM_FAILURE,);
 }
 
-void OmxVideoDecodeAccelerator::OnPortSettingsChanged() {
+void OmxrVideoDecodeAccelerator::OnPortSettingsChanged() {
   VLOGF(1) << "Port settings changed received";
   current_state_change_ = RESIZING;
   SendCommandToPort(OMX_CommandPortDisable, output_port_);
@@ -1222,7 +1222,7 @@ void OmxVideoDecodeAccelerator::OnPortSettingsChanged() {
   }
 }
 
-void OmxVideoDecodeAccelerator::OnOutputPortDisabled() {
+void OmxrVideoDecodeAccelerator::OnOutputPortDisabled() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   OMX_PARAM_PORTDEFINITIONTYPE port_format;
   InitParam(&port_format);
@@ -1252,7 +1252,7 @@ void OmxVideoDecodeAccelerator::OnOutputPortDisabled() {
   }
 }
 
-void OmxVideoDecodeAccelerator::OnOutputPortEnabled() {
+void OmxrVideoDecodeAccelerator::OnOutputPortEnabled() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
   if (current_state_change_ == RESETTING) {
@@ -1287,7 +1287,7 @@ void OmxVideoDecodeAccelerator::OnOutputPortEnabled() {
   }
 }
 
-void OmxVideoDecodeAccelerator::FillBufferDoneTask(
+void OmxrVideoDecodeAccelerator::FillBufferDoneTask(
     OMX_BUFFERHEADERTYPE* buffer) {
   VLOGF(2);
   OutputPicture *output_picture =
@@ -1357,7 +1357,7 @@ void OmxVideoDecodeAccelerator::FillBufferDoneTask(
     decode_client_->PictureReady(picture);
 }
 
-void OmxVideoDecodeAccelerator::EmptyBufferDoneTask(
+void OmxrVideoDecodeAccelerator::EmptyBufferDoneTask(
     OMX_BUFFERHEADERTYPE* buffer) {
   TRACE_EVENT1("media,gpu", "OVDA::EmptyBufferDoneTask",
                "Buffer id", buffer->nTimeStamp);
@@ -1371,7 +1371,7 @@ void OmxVideoDecodeAccelerator::EmptyBufferDoneTask(
   DecodeQueuedBitstreamBuffers();
 }
 
-void OmxVideoDecodeAccelerator::DispatchStateReached(OMX_STATETYPE reached) {
+void OmxrVideoDecodeAccelerator::DispatchStateReached(OMX_STATETYPE reached) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   switch (current_state_change_) {
     case INITIALIZING:
@@ -1433,7 +1433,7 @@ void OmxVideoDecodeAccelerator::DispatchStateReached(OMX_STATETYPE reached) {
   }
 }
 
-void OmxVideoDecodeAccelerator::HandleSyncronousInit(OMX_EVENTTYPE event,
+void OmxrVideoDecodeAccelerator::HandleSyncronousInit(OMX_EVENTTYPE event,
                                                          OMX_U32 data1,
                                                          OMX_U32 data2) {
 
@@ -1456,7 +1456,7 @@ void OmxVideoDecodeAccelerator::HandleSyncronousInit(OMX_EVENTTYPE event,
   }
 }
 
-void OmxVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
+void OmxrVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
                                                          OMX_U32 data1,
                                                          OMX_U32 data2) {
   VLOGF(1) << "event:" << event << " data:" << data1 << ":" << data2;
@@ -1540,7 +1540,7 @@ void OmxVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
 }
 
 // static
-void OmxVideoDecodeAccelerator::PreSandboxInitialization() {
+void OmxrVideoDecodeAccelerator::PreSandboxInitialization() {
   VLOG(1) << "Starting pre sandbox init";
   StubPathMap paths;
   paths[kModuleOmx].push_back(kOMXLib);
@@ -1553,7 +1553,7 @@ void OmxVideoDecodeAccelerator::PreSandboxInitialization() {
 }
 
 // static
-OMX_ERRORTYPE OmxVideoDecodeAccelerator::EventHandler(OMX_HANDLETYPE component,
+OMX_ERRORTYPE OmxrVideoDecodeAccelerator::EventHandler(OMX_HANDLETYPE component,
                                                       OMX_PTR priv_data,
                                                       OMX_EVENTTYPE event,
                                                       OMX_U32 data1,
@@ -1562,8 +1562,8 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::EventHandler(OMX_HANDLETYPE component,
 
   VLOGF(1);
   // Called on the OMX thread.
-  OmxVideoDecodeAccelerator* decoder =
-      static_cast<OmxVideoDecodeAccelerator*>(priv_data);
+  OmxrVideoDecodeAccelerator* decoder =
+      static_cast<OmxrVideoDecodeAccelerator*>(priv_data);
   DCHECK_EQ(component, decoder->component_handle_);
 
   if (!decoder->deferred_init_allowed_ &&
@@ -1573,30 +1573,30 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::EventHandler(OMX_HANDLETYPE component,
   }
 
   decoder->child_task_runner_->PostTask(FROM_HERE, base::Bind(
-      &OmxVideoDecodeAccelerator::EventHandlerCompleteTask,
+      &OmxrVideoDecodeAccelerator::EventHandlerCompleteTask,
       decoder->weak_this(), event, data1, data2));
   return OMX_ErrorNone;
 }
 
 // static
-OMX_ERRORTYPE OmxVideoDecodeAccelerator::EmptyBufferCallback(
+OMX_ERRORTYPE OmxrVideoDecodeAccelerator::EmptyBufferCallback(
     OMX_HANDLETYPE component,
     OMX_PTR priv_data,
     OMX_BUFFERHEADERTYPE* buffer) {
   TRACE_EVENT1("media,gpu", "OVDA::EmptyBufferCallback",
                "Buffer id", buffer->nTimeStamp);
   // Called on the OMX thread.
-  OmxVideoDecodeAccelerator* decoder =
-      static_cast<OmxVideoDecodeAccelerator*>(priv_data);
+  OmxrVideoDecodeAccelerator* decoder =
+      static_cast<OmxrVideoDecodeAccelerator*>(priv_data);
   DCHECK_EQ(component, decoder->component_handle_);
   decoder->decode_task_runner_->PostTask(FROM_HERE, base::Bind(
-      &OmxVideoDecodeAccelerator::EmptyBufferDoneTask, decoder->weak_this(),
+      &OmxrVideoDecodeAccelerator::EmptyBufferDoneTask, decoder->weak_this(),
       buffer));
   return OMX_ErrorNone;
 }
 
 // static
-OMX_ERRORTYPE OmxVideoDecodeAccelerator::FillBufferCallback(
+OMX_ERRORTYPE OmxrVideoDecodeAccelerator::FillBufferCallback(
     OMX_HANDLETYPE component,
     OMX_PTR priv_data,
     OMX_BUFFERHEADERTYPE* buffer) {
@@ -1607,16 +1607,16 @@ OMX_ERRORTYPE OmxVideoDecodeAccelerator::FillBufferCallback(
                "Buffer id", buffer->nTimeStamp,
                "Picture id", picture_buffer_id);
   // Called on the OMX thread.
-  OmxVideoDecodeAccelerator* decoder =
-      static_cast<OmxVideoDecodeAccelerator*>(priv_data);
+  OmxrVideoDecodeAccelerator* decoder =
+      static_cast<OmxrVideoDecodeAccelerator*>(priv_data);
   DCHECK_EQ(component, decoder->component_handle_);
   decoder->decode_task_runner_->PostTask(FROM_HERE, base::Bind(
-      &OmxVideoDecodeAccelerator::FillBufferDoneTask, decoder->weak_this(),
+      &OmxrVideoDecodeAccelerator::FillBufferDoneTask, decoder->weak_this(),
       buffer));
   return OMX_ErrorNone;
 }
 
-bool OmxVideoDecodeAccelerator::CanFillBuffer() {
+bool OmxrVideoDecodeAccelerator::CanFillBuffer() {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   const CurrentStateChange csc = current_state_change_;
   const OMX_STATETYPE cs = client_state_;
@@ -1624,7 +1624,7 @@ bool OmxVideoDecodeAccelerator::CanFillBuffer() {
       (cs == OMX_StateIdle || cs == OMX_StateExecuting || cs == OMX_StatePause);
 }
 
-bool OmxVideoDecodeAccelerator::SendCommandToPort(
+bool OmxrVideoDecodeAccelerator::SendCommandToPort(
     OMX_COMMANDTYPE cmd, int port_index) {
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   OMX_ERRORTYPE result = OMX_SendCommand(component_handle_,
