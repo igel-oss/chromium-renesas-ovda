@@ -239,6 +239,12 @@ bool OmxrVideoDecodeAccelerator::Initialize(const Config& config, Client* client
   DCHECK(child_task_runner_->BelongsToCurrentThread());
   CodecInfo cinfo;
 
+  page_size_ = sysconf(_SC_PAGESIZE);
+
+  RETURN_ON_FAILURE(page_size_ > 0,
+        "Cannot get valid system page size",
+        PLATFORM_FAILURE, false);
+
   cinfo = OmxrProfileManager::Get().getCodecForProfile(profile);
 
   RETURN_ON_FAILURE(cinfo.codec != UNKNOWN, "Unsupported profile: " << profile,
@@ -683,7 +689,7 @@ void OmxrVideoDecodeAccelerator::AssignPictureBuffers(
     void *dummy;
     EGLImageKHR egl_image;
     struct MmngrBuffer mbuf;
-    int alloc_size = (port_format.nBufferSize + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1);
+    int alloc_size = (port_format.nBufferSize + (page_size_ - 1)) & ~(page_size_ - 1);
 
     gfx::Size size = buffers[i].size();
     DCHECK_EQ(picture_buffer_dimensions_.width(), size.width());
