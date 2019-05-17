@@ -254,6 +254,7 @@ class CONTENT_EXPORT OmxrVideoDecodeAccelerator :
   OMX_U32 output_port_;
   int output_buffer_size_;
   int output_buffers_at_component_;
+  int page_size_;
 
   gfx::Size picture_buffer_dimensions_;
 
