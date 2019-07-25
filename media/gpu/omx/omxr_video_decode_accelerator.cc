@@ -125,9 +125,18 @@ const OmxrVideoDecodeAccelerator::OmxrProfileManager &OmxrVideoDecodeAccelerator
     return *profile_manager;
 }
 
+void OmxrVideoDecodeAccelerator::OmxrProfileManager::InitOMXLibs() {
+    StubPathMap paths;
+    paths[kModuleOmx].push_back(kOMXLib);
+    paths[kModuleMmngr].push_back(kMMNGRLib);
+    paths[kModuleMmngrbuf].push_back(kMMNGRBufLib);
+    InitializeStubs(paths);
+}
+
 OmxrVideoDecodeAccelerator::OmxrProfileManager::OmxrProfileManager() {
     OMX_HANDLETYPE component_handle;
 
+    InitOMXLibs();
     OMX_Init();
 
     OMX_CALLBACKTYPE omx_accelerator_callbacks = {
@@ -1548,12 +1557,6 @@ void OmxrVideoDecodeAccelerator::EventHandlerCompleteTask(OMX_EVENTTYPE event,
 // static
 void OmxrVideoDecodeAccelerator::PreSandboxInitialization() {
   VLOG(1) << "Starting pre sandbox init";
-  StubPathMap paths;
-  paths[kModuleOmx].push_back(kOMXLib);
-  paths[kModuleMmngr].push_back(kMMNGRLib);
-  paths[kModuleMmngrbuf].push_back(kMMNGRBufLib);
-  InitializeStubs(paths);
-
   //enumerate and dlopen codec libraries*/
   OmxrProfileManager::Get();
 }
