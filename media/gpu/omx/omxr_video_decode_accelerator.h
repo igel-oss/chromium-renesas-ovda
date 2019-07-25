@@ -136,6 +136,10 @@ class CONTENT_EXPORT OmxrVideoDecodeAccelerator :
 
     const struct CodecInfo getCodecForProfile(VideoCodecProfile profile) const;
     const std::vector<VideoCodecProfile> & getSupportedProfiles() const { return supported_profiles_;}
+
+  private:
+    void InitOMXLibs(void);
+
   private:
     std::vector<std::pair<struct CodecInfo, std::vector<VideoCodecProfile>>> possible_profiles_ = {
         {{H264, "video_decoder.avc", nullptr}, {H264PROFILE_BASELINE, H264PROFILE_MAIN, H264PROFILE_HIGH}},
