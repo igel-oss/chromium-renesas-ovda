@@ -47,16 +47,16 @@ enum { kNumPictureBuffers = 8 };
 enum { kSyncPollDelayMs = 5 };
 
 OmxrVideoDecodeAccelerator::BitstreamBufferRef::BitstreamBufferRef(
-    const media::BitstreamBuffer &buf,
+    scoped_refptr<DecoderBuffer> buffer,
+    int32_t bitstream_buffer_id,
     scoped_refptr<base::SingleThreadTaskRunner> tr,
     base::WeakPtr<Client> cl)
     : task_runner(tr),
       client(cl) {
-  id = buf.id();
-  size = buf.size();
-  shm = std::make_unique<base::SharedMemory> (buf.handle(), true);
-  shm->Map(size);
-  memory = shm->memory();
+  id = bitstream_buffer_id;
+  buf = std::move(buffer);
+  size = buf->data_size();
+  memory = buf->data();
 }
 
 OmxrVideoDecodeAccelerator::BitstreamBufferRef::~BitstreamBufferRef() {
@@ -489,16 +489,22 @@ bool OmxrVideoDecodeAccelerator::DecoderSpecificInitialization() {
   return true;
 }
 
+void OmxrVideoDecodeAccelerator::Decode(media::BitstreamBuffer bitstream_buffer)
+{
+  Decode(bitstream_buffer.ToDecoderBuffer(), bitstream_buffer.id());
+}
+
 void OmxrVideoDecodeAccelerator::Decode(
-    const media::BitstreamBuffer& bitstream_buffer) {
+    scoped_refptr<DecoderBuffer> dbuffer, int32_t bitstream_buffer_id) {
   TRACE_EVENT2("media,gpu", "OVDA::Decode",
-               "Buffer id", bitstream_buffer.id(),
+               "Buffer id", bitstream_buffer_id,
                "Component input buffers", input_buffers_at_component_ + 1);
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
-  VLOGF(2) << "buffer id:" << bitstream_buffer.id();
+  VLOGF(2) << "buffer id:" << bitstream_buffer_id;
 
-  auto buffer = std::make_unique<BitstreamBufferRef>(bitstream_buffer, decode_task_runner_, decode_client_);
+  auto buffer = std::make_unique<BitstreamBufferRef>(std::move(dbuffer), bitstream_buffer_id,
+      decode_task_runner_, decode_client_);
   RETURN_ON_FAILURE(buffer->memory != NULL || buffer->id < 0,
                     "Failed to map bistream buffer memory", UNREADABLE_INPUT,);
 
@@ -565,7 +571,7 @@ void OmxrVideoDecodeAccelerator::DecodeBuffer(std::unique_ptr<struct BitstreamBu
   DCHECK(!omx_buffer->pAppPrivate);
 
 
-  OMX_U8 *data = static_cast<OMX_U8*>(input_buffer->memory);
+  const OMX_U8 *data = static_cast<const OMX_U8*>(input_buffer->memory);
 
   bool send_frame = false;
   int size = input_buffer->size;
@@ -855,7 +861,7 @@ void OmxrVideoDecodeAccelerator::Flush() {
        &Client::NotifyFlushDone, client_));
     return;
   }
-  Decode(media::BitstreamBuffer(-1, base::SharedMemoryHandle(), 0));
+  Decode(new DecoderBuffer(0), -1);
 }
 
 void OmxrVideoDecodeAccelerator::OnReachedEOSInFlushing() {

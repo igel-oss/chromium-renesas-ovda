@@ -50,7 +50,8 @@ class CONTENT_EXPORT OmxrVideoDecodeAccelerator :
 
   // media::VideoDecodeAccelerator implementation.
   bool Initialize(const Config& config, Client* client) override;
-  void Decode(const media::BitstreamBuffer& bitstream_buffer) override;
+  virtual void Decode(media::BitstreamBuffer bitstream_buffer) override;
+  virtual void Decode(scoped_refptr<DecoderBuffer> buffer, int32_t bitstream_buffer_id) override;
   virtual void AssignPictureBuffers(
       const std::vector<media::PictureBuffer>& buffers) override;
   void ReusePictureBuffer(int32_t picture_buffer_id) override;
@@ -150,17 +151,18 @@ class CONTENT_EXPORT OmxrVideoDecodeAccelerator :
 
   struct BitstreamBufferRef {
     BitstreamBufferRef(
-      const media::BitstreamBuffer &buf,
+      scoped_refptr<DecoderBuffer> buffer,
+      int32_t bitstream_buffer_id,
       scoped_refptr<base::SingleThreadTaskRunner> tr,
       base::WeakPtr<Client> cl);
     virtual ~BitstreamBufferRef();
 
-    std::unique_ptr<base::SharedMemory> shm;
+    scoped_refptr<DecoderBuffer> buf;
     scoped_refptr<base::SingleThreadTaskRunner> task_runner;
     base::WeakPtr<Client> client;
     int32_t id;
     size_t size;
-    void *memory;
+    const void *memory;
   };
 
   typedef std::map<int32_t, std::unique_ptr<OutputPicture>> OutputPictureById;
