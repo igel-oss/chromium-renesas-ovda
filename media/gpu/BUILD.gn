@@ -19,7 +19,46 @@ buildflag_header("buildflags") {
     "USE_V4L2_CODEC=$use_v4l2_codec",
     "USE_LIBV4L2=$use_v4lplugin",
     "USE_LINUX_V4L2=$use_linux_v4l2_only",
+    "USE_OMX_CODEC=$use_omx_codec",
   ]
+}
+
+if (use_omx_codec) {
+  action("omx_generate_stubs") {
+    extra_header = "omx/omx_stub_header.fragment"
+
+    script = "../../tools/generate_stubs/generate_stubs.py"
+    sources = [
+      "omx/omx.sig",
+      "omx/mmngr.sig",
+      "omx/mmngrbuf.sig",
+    ]
+    inputs = [
+      extra_header,
+    ]
+    stubs_filename_root = "omx_stubs"
+
+    outputs = [
+      "$target_gen_dir/omx/$stubs_filename_root.cc",
+      "$target_gen_dir/omx/$stubs_filename_root.h",
+    ]
+    args = [
+      "-i",
+      rebase_path("$target_gen_dir/omx", root_build_dir),
+      "-o",
+      rebase_path("$target_gen_dir/omx", root_build_dir),
+      "-t",
+      "posix_stubs",
+      "-e",
+      rebase_path(extra_header, root_build_dir),
+      "-s",
+      stubs_filename_root,
+      "-p",
+      "media/gpu/omx",
+    ]
+
+    args += rebase_path(sources, root_build_dir)
+  }
 }
 
 component("gpu") {
@@ -166,6 +205,18 @@ component("gpu") {
 
   if (use_vaapi) {
     public_deps += [ "//media/gpu/vaapi" ]
+  }
+
+  if (use_omx_codec) {
+      sources += get_target_outputs(":omx_generate_stubs")
+      deps += [ ":omx_generate_stubs" ]
+      sources += [
+        "omx/omxr_video_decode_accelerator.cc",
+        "omx/omxr_video_decode_accelerator.h",
+      ]
+      deps += [
+        "//third_party/openmax/il:openmax_il",
+      ]
   }
 
   if (is_win) {
@@ -380,7 +431,7 @@ source_set("video_frame_mapper_common") {
 }
 
 # TODO(watk): Run this on bots. http://crbug.com/461437
-if (is_win || is_android || use_v4l2_codec || use_vaapi) {
+if (is_win || is_android || use_v4l2_codec || use_vaapi || use_omx_codec) {
   test("video_decode_accelerator_unittest") {
     data = [
       "//media/test/data/",
@@ -406,7 +457,7 @@ if (is_win || is_android || use_v4l2_codec || use_vaapi) {
 
     configs += [ "//third_party/khronos:khronos_headers" ]
 
-    if (is_win || is_chromeos || use_v4l2_codec) {
+    if (is_win || is_chromeos || use_v4l2_codec || use_omx_codec) {
       sources = [
         "test/fake_video_decode_accelerator.cc",
         "test/fake_video_decode_accelerator.h",

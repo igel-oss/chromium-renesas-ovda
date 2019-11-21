@@ -1,0 +1,9 @@
+// These are some extra includes needed in the generated stub file for defining
+// various OpenMAX and MMNGR types.
+
+extern "C" {
+
+#include "third_party/openmax/il/OMX_Core.h"
+#include "third_party/mmngr/mmngr_user_public.h"
+
+}

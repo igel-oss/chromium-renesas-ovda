@@ -17,4 +17,7 @@ declare_args() {
   # Indicates if VA-API-based hardware acceleration is to be used. This
   # is typically the case on x86-based ChromeOS devices.
   use_vaapi = false
+
+  # Return of the mack.  Use OMX decoder.
+  use_omx_codec = false
 }
